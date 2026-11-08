@@ -6,7 +6,7 @@ Update this tracker immediately after completing and testing each phase:
 | :---: | :---: | :--- | :---: | :---: | :---: |
 | **01** | Setup | Repository inspection, `.gitignore`, `requirements.txt`, folder skeleton | `[x] COMPLETED` | Environment & Tree Verified | `phase-1-init` |
 | **02** | `M01` | Security Vault (`Fernet`), `TokenBucketRateLimiter`, `CircuitBreaker`, `OPSECGuard`, Hash-Chained Audit Log | `[x] COMPLETED` | `test_m01_security.py` (6/6 passed) | `phase-2-m01` |
-| **03** | `M02` | Bitemporal SQLite WAL/FTS5/R*Tree Schema, FollowTheMoney Ontology, RIOT-Lite & Blocking Keys | `[ ] PENDING` | `test_m02_database.py` | — |
+| **03** | `M02` | Bitemporal SQLite WAL/FTS5/R*Tree Schema, FollowTheMoney Ontology, RIOT-Lite & Blocking Keys | `[x] COMPLETED` | `test_m02_database.py` (8/8 passed) | `phase-3-m02` |
 | **04** | `M06` | W3C PROV Lineage DAG, Dong Copying Discount & Jøsang Subjective Logic Belief Fusion | `[ ] PENDING` | `test_m06_provenance_fusion.py` | — |
 | **05** | `M04` | Hybrid NLP Extractor (Defang/Regex + ONNX INT8 GLiNER + DGA Entropy) & PDF/DOCX/EXIF Forensics | `[ ] PENDING` | `test_m04_nlp_forensics.py` | — |
 | **06** | `M03` | `AsyncEventBus`, Staging Triage Buffer (`is_staged`) & 24 Modular OSINT Connectors | `[ ] PENDING` | `test_m03_collectors.py` | — |
