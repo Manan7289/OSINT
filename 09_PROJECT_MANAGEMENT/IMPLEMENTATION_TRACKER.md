@@ -8,7 +8,7 @@ Update this tracker immediately after completing and testing each phase:
 | **02** | `M01` | Security Vault (`Fernet`), `TokenBucketRateLimiter`, `CircuitBreaker`, `OPSECGuard`, Hash-Chained Audit Log | `[x] COMPLETED` | `test_m01_security.py` (6/6 passed) | `phase-2-m01` |
 | **03** | `M02` | Bitemporal SQLite WAL/FTS5/R*Tree Schema, FollowTheMoney Ontology, RIOT-Lite & Blocking Keys | `[x] COMPLETED` | `test_m02_database.py` (8/8 passed) | `phase-3-m02` |
 | **04** | `M06` | W3C PROV Lineage DAG, Dong Copying Discount & Jøsang Subjective Logic Belief Fusion | `[x] COMPLETED` | `test_m06_provenance_fusion.py` (5/5 passed) | `phase-4-m06` |
-| **05** | `M04` | Hybrid NLP Extractor (Defang/Regex + ONNX INT8 GLiNER + DGA Entropy) & PDF/DOCX/EXIF Forensics | `[ ] PENDING` | `test_m04_nlp_forensics.py` | — |
+| **05** | `M04` | Hybrid NLP Extractor (Defang/Regex + ONNX INT8 GLiNER + DGA Entropy) & PDF/DOCX/EXIF Forensics | `[x] COMPLETED` | `test_m04_nlp_forensics.py` (7/7 passed) | `phase-5-m04` |
 | **06** | `M03` | `AsyncEventBus`, Staging Triage Buffer (`is_staged`) & 24 Modular OSINT Connectors | `[ ] PENDING` | `test_m03_collectors.py` | — |
 | **07** | `M05` | 3-Pass Blocked Fellegi-Sunter EM Entity Resolution, Waterfall Charts & Reversible Merge Ledger | `[ ] PENDING` | `test_m05_entity_resolution.py` | — |
 | **08** | `M07` | `rustworkx`/SciPy Graph Engine (Leiden, IEF-PageRank, Adamic-Adar) + HDBSCAN & Kleinberg Burst | `[ ] PENDING` | `test_m07_graph_spatiotemporal.py` | — |
