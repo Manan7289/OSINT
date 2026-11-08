@@ -33,7 +33,7 @@ from backend.exporters import (
     export_workspace_prov,
     export_workspace_stix,
 )
-from backend.nlp.extractor import extractor
+from backend.nlp.extractor import extractor, refang
 from backend.nlp.forensics import analyze_file
 
 
@@ -469,12 +469,27 @@ def get_workspace_graph(
     hide_shared_infra: bool = False,
     include_staged: bool = False,
 ):
-    return graph_engine.analyze_workspace_graph(
+    graph = graph_engine.analyze_workspace_graph(
         workspace_id=workspace_id,
         as_of_time=as_of_time,
         hide_shared_infra=hide_shared_infra,
         include_staged=include_staged,
     )
+    for edge in graph.get("edges", []):
+        if "source" not in edge:
+            edge["source"] = edge.get("subject_entity_id")
+        if "target" not in edge:
+            edge["target"] = edge.get("object_entity_id")
+        if "schema" not in edge:
+            edge["schema"] = edge.get("predicate", "RELATED")
+        if "weight" not in edge:
+            edge["weight"] = edge.get("ief_edge_weight", 1.0)
+    for node in graph.get("nodes", []):
+        if "label" not in node:
+            node["label"] = node.get("display_label") or node.get("canonical_value")
+        if "schema" not in node:
+            node["schema"] = node.get("ftm_schema")
+    return graph
 
 
 @app.get("/api/workspaces/{workspace_id}/geospatial")
@@ -611,6 +626,282 @@ def update_settings(req: SettingsUpdateRequest):
 @app.get("/api/v2/audit-logs")
 def get_audit_logs(limit: int = 100):
     return db.get_audit_logs(limit=limit)
+
+
+# -----------------------------------------------------------------------------
+# Frontend Workstation API Convenience Endpoints
+# -----------------------------------------------------------------------------
+
+@app.get("/api/workspaces/{workspace_id}/dashboard")
+def get_workspace_dashboard(workspace_id: str):
+    entities = db.list_entities(workspace_id, limit=1000)
+    claims = db.list_claims(workspace_id, limit=1000)
+    evidence = db.list_evidence(workspace_id, limit=10)
+    staged = [e for e in entities if e.get("is_staged")]
+    active = [e for e in entities if not e.get("is_staged")]
+
+    top_hubs = sorted(active, key=lambda x: x.get("ief_pagerank", 0.0), reverse=True)[:5]
+    hubs_data = [
+        {
+            "label": h.get("display_label") or h.get("canonical_value"),
+            "canonical_value": h.get("canonical_value"),
+            "schema": h.get("ftm_schema"),
+            "pagerank": h.get("ief_pagerank", 0.0),
+            "degree": int(h.get("degree_centrality", 0)),
+        }
+        for h in top_hubs
+    ]
+
+    latest_ev = [
+        {
+            "id": ev["id"],
+            "source_name": ev.get("source_name", "N/A"),
+            "admiralty_code": f"{ev.get('admiralty_reliability', 'B')}{ev.get('admiralty_credibility', 2)}",
+            "title": ev.get("title", ""),
+            "observed_at": ev.get("observed_at", ""),
+        }
+        for ev in evidence
+    ]
+
+    conflicts = [c for c in claims if c.get("sl_disbelief", 0.0) >= 0.25]
+
+    return {
+        "entities_count": len(active),
+        "claims_count": len(claims),
+        "staged_count": len(staged),
+        "evidence_count": len(db.list_evidence(workspace_id, limit=10000)),
+        "contradiction_alerts_count": len(conflicts),
+        "top_hubs": hubs_data,
+        "latest_evidence": latest_ev,
+    }
+
+
+@app.get("/api/workspaces/{workspace_id}/staging")
+def get_staging_buffer(workspace_id: str):
+    entities = db.list_entities(workspace_id, limit=1000)
+    return [e for e in entities if e.get("is_staged")]
+
+
+@app.post("/api/workspaces/{workspace_id}/staging/promote-high-risk")
+def promote_high_risk_endpoint(workspace_id: str, threshold: int = 50):
+    promoted = db.promote_staged_entities(workspace_id=workspace_id, min_risk=threshold)
+    return {"status": "PROMOTED", "promoted_count": promoted}
+
+
+@app.post("/api/workspaces/{workspace_id}/forensics/paste")
+def forensics_paste(workspace_id: str, body: Dict[str, Any] = Body(...)):
+    text = body.get("text", "")
+    res = extractor.extract_all(text)
+    ev = db.add_evidence(
+        workspace_id=workspace_id,
+        connector_id="local_doc_forensics",
+        upstream_lineage_family="LocalAnalyst",
+        source_name="Document Text Paste",
+        source_url="local://paste",
+        title="Advisory Paste Analysis",
+        summary_text="Extracted observables from pasted text",
+        raw_payload={"extracted": res},
+        simhash_64=res.get("simhash_64", "0000000000000000"),
+    )
+    observables = []
+    for schema, values in res.items():
+        if schema in ("simhash_64", "DGA_Domains"):
+            continue
+        for val in values:
+            observables.append(val)
+            db.upsert_entity(workspace_id=workspace_id, ftm_schema=schema, raw_value=val)
+    return {
+        "status": "EXTRACTED",
+        "refanged_text": refang(text),
+        "observables": observables,
+        "extracted": res,
+        "evidence_id": ev["id"],
+    }
+
+
+@app.post("/api/workspaces/{workspace_id}/forensics/upload")
+async def forensics_upload(workspace_id: str, file: UploadFile = File(...)):
+    contents = await file.read()
+    analysis = analyze_file(file.filename, contents)
+    ev = db.add_evidence(
+        workspace_id=workspace_id,
+        connector_id="local_doc_forensics",
+        upstream_lineage_family="LocalFile",
+        source_name=f"File: {file.filename}",
+        source_url=f"local://file/{file.filename}",
+        title=f"Forensic Analysis of {file.filename}",
+        summary_text=f"Analyzed {analysis.get('file_type')} file",
+        raw_payload=analysis,
+        simhash_64=analysis.get("simhash_64", "0000000000000000"),
+    )
+    return {"status": "ANALYZED", "filename": file.filename, "evidence_id": ev["id"], "analysis": analysis}
+
+
+@app.get("/api/workspaces/{workspace_id}/resolution/candidates")
+def get_er_candidates(workspace_id: str):
+    data = entity_resolution_engine.evaluate_candidates(workspace_id=workspace_id)
+    raw_candidates = data.get("candidates", [])
+    enriched = []
+    for c in raw_candidates:
+        enriched.append({
+            **c,
+            "entity_a": {"id": c["entity_a_id"], "label": c["entity_a_label"], "schema": c["entity_a_schema"]},
+            "entity_b": {"id": c["entity_b_id"], "label": c["entity_b_label"], "schema": c["entity_b_schema"]},
+            "waterfall": {"factors": c.get("waterfall_factors", [])},
+            "fs_log2_weight": c.get("fellegi_sunter_log2_weight", 0.0),
+        })
+    return enriched
+
+
+@app.get("/api/workspaces/{workspace_id}/resolution/ledger")
+def get_er_ledger(workspace_id: str):
+    history = entity_resolution_engine.get_merge_ledger(workspace_id=workspace_id)
+    return [
+        {
+            "merge_id": h["id"],
+            "winner_id": h["winner_entity_id"],
+            "absorbed_id": h["absorbed_entity_id"],
+            "match_probability": h["match_probability"],
+            "status": "UNMERGED" if h.get("is_reverted") else "MERGED",
+            "merged_at": h.get("merged_at"),
+        }
+        for h in history
+    ]
+
+
+@app.post("/api/workspaces/{workspace_id}/resolution/merge")
+def merge_resolution_endpoint(workspace_id: str, body: Dict[str, Any] = Body(...)):
+    primary = body.get("winner_id") or body.get("primary_entity_id")
+    dup = body.get("absorbed_id") or body.get("duplicate_entity_id")
+    prob = float(body.get("match_probability", 0.95))
+    res = entity_resolution_engine.merge_entities(
+        workspace_id=workspace_id,
+        primary_entity_id=primary,
+        duplicate_entity_id=dup,
+        match_probability=prob,
+    )
+    return res
+
+
+@app.post("/api/workspaces/{workspace_id}/resolution/unmerge")
+def unmerge_resolution_endpoint(workspace_id: str, body: Dict[str, Any] = Body(...)):
+    merge_id = body.get("merge_id")
+    return entity_resolution_engine.unmerge_entity(workspace_id=workspace_id, merge_id=merge_id)
+
+
+@app.get("/api/workspaces/{workspace_id}/graph/node/{entity_id}")
+def get_graph_node_details(workspace_id: str, entity_id: str):
+    ent = db.get_entity(entity_id)
+    if not ent:
+        raise HTTPException(status_code=404, detail="Entity not found")
+    adj = graph_engine.analyze_workspace_graph(workspace_id)
+    predicted = []
+    for link in adj.get("predicted_links", []):
+        u = link.get("u")
+        v = link.get("v")
+        if u == entity_id or v == entity_id:
+            other = v if u == entity_id else u
+            o_ent = db.get_entity(other)
+            o_label = o_ent.get("display_label") if o_ent else other
+            predicted.append({
+                "target_id": other,
+                "target_label": o_label,
+                "score": link.get("score", 0.0),
+            })
+    return {
+        **ent,
+        "belief_score": ent.get("sl_belief", 0.75),
+        "disbelief_score": ent.get("sl_disbelief", 0.0),
+        "uncertainty_score": ent.get("sl_uncertainty", 0.25),
+        "pagerank": ent.get("ief_pagerank", 0.0),
+        "predicted_missing_links": predicted[:5],
+    }
+
+
+@app.post("/api/workspaces/{workspace_id}/collect")
+async def collect_endpoint(workspace_id: str, body: Dict[str, Any] = Body(...)):
+    target = body.get("target") or body.get("target_query")
+    schema = body.get("schema_type") or body.get("target_type")
+    depth = int(body.get("depth", 1))
+    connectors = body.get("connectors")
+    return await orchestrator.run_playbook(
+        workspace_id=workspace_id,
+        target_query=target,
+        target_type=schema,
+        connectors=connectors,
+        pivot_depth=depth,
+    )
+
+
+@app.post("/api/workspaces/{workspace_id}/ai/query")
+def ai_query_ws(workspace_id: str, body: Dict[str, Any] = Body(...)):
+    query = body.get("query", "")
+    res = graphrag_assistant.compile_graphrag_report(workspace_id, query)
+    res["response"] = res.get("answer_markdown", "")
+    return res
+
+
+@app.post("/api/workspaces/{workspace_id}/ai/report")
+def ai_report_ws(workspace_id: str, body: Dict[str, Any] = Body(...)):
+    title = body.get("title", "Investigation Report")
+    query = body.get("query", "Comprehensive Findings")
+    return graphrag_assistant.generate_and_save_report(
+        workspace_id=workspace_id,
+        title=title,
+        query=query,
+    )
+
+
+@app.get("/api/workspaces/{workspace_id}/provenance")
+def get_provenance_ledger(workspace_id: str):
+    return db.list_evidence(workspace_id=workspace_id, limit=500)
+
+
+@app.get("/api/export/{workspace_id}/{format_type}")
+def export_alias(workspace_id: str, format_type: str):
+    return export_workspace(workspace_id=workspace_id, format=format_type)
+
+
+@app.get("/api/search")
+def search_alias(q: str = Query(...), workspace_id: Optional[str] = Query(None), mode: str = "hybrid_rrf", limit: int = 50):
+    if not workspace_id:
+        workspaces = db.list_workspaces()
+        if not workspaces:
+            return {"results": []}
+        workspace_id = workspaces[0]["id"]
+    results = hybrid_search_engine.hybrid_search(workspace_id=workspace_id, query=q, mode=mode, limit=limit)
+    return {"results": results}
+
+
+@app.get("/api/vault")
+def get_vault():
+    conns = db.get_connectors()
+    return [
+        {
+            "name": c["connector_id"],
+            "category": c["category"],
+            "requires_key": bool(c["requires_api_key"]),
+            "masked_key": "********" if c.get("encrypted_api_key") else "",
+            "rate_limit_rpm": c.get("rate_limit_rpm", 60),
+            "circuit_breaker_status": c.get("circuit_state", "READY"),
+        }
+        for c in conns
+    ]
+
+
+@app.post("/api/vault")
+def update_vault(body: Dict[str, Any] = Body(...)):
+    name = body.get("connector_name")
+    key = body.get("api_key")
+    db.update_connector(connector_id=name, plaintext_api_key=key)
+    return {"status": "SAVED", "connector_name": name}
+
+
+@app.post("/api/settings")
+def update_settings_post(body: Dict[str, Any] = Body(...)):
+    for k, v in body.items():
+        db.set_setting(k, str(v))
+    return {"status": "UPDATED", "settings": db.get_settings()}
 
 
 # -----------------------------------------------------------------------------

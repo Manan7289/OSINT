@@ -200,13 +200,35 @@ class EntityResolutionEngine:
             "pair_reduction_ratio": ratio,
         }
 
+    def get_merge_ledger(self, workspace_id: str) -> List[Dict[str, Any]]:
+        """Retrieves the full reversible merge history from entity_merge_ledger."""
+        merge_history = []
+        with self.db.get_connection() as conn:
+            cur = conn.execute(
+                "SELECT * FROM entity_merge_ledger WHERE workspace_id = ? ORDER BY merged_at DESC;",
+                (workspace_id,),
+            )
+            for r in cur.fetchall():
+                merge_history.append({
+                    "id": r["id"],
+                    "winner_entity_id": r["winner_entity_id"],
+                    "absorbed_entity_id": r["absorbed_entity_id"],
+                    "match_probability": r["match_probability"],
+                    "fellegi_sunter_log2_weight": r["fellegi_sunter_log2_weight"],
+                    "is_reverted": bool(r["is_reverted"]),
+                    "merged_at": r["merged_at"],
+                    "reverted_at": r["reverted_at"],
+                })
+        return merge_history
+
     def evaluate_candidates(
         self, workspace_id: str, min_probability: float = 0.50
     ) -> Dict[str, Any]:
         """Runs candidate pair blocking, computes gamma matrix, executes EM, and produces waterfall explanations."""
+        merge_history = self.get_merge_ledger(workspace_id)
         cand_pairs, stats = self.generate_candidate_pairs(workspace_id)
         if not cand_pairs:
-            return {"workspace_id": workspace_id, "blocking_stats": stats, "candidates": [], "merge_history": []}
+            return {"workspace_id": workspace_id, "blocking_stats": stats, "candidates": [], "merge_history": merge_history}
 
         # Load entity records
         entities_cache: Dict[str, Dict[str, Any]] = {}
@@ -289,23 +311,7 @@ class EntityResolutionEngine:
         candidates.sort(key=lambda c: c["match_probability"], reverse=True)
 
         # Fetch merge history from ledger
-        merge_history = []
-        with self.db.get_connection() as conn:
-            cur = conn.execute(
-                "SELECT * FROM entity_merge_ledger WHERE workspace_id = ? ORDER BY merged_at DESC;",
-                (workspace_id,),
-            )
-            for r in cur.fetchall():
-                merge_history.append({
-                    "id": r["id"],
-                    "winner_entity_id": r["winner_entity_id"],
-                    "absorbed_entity_id": r["absorbed_entity_id"],
-                    "match_probability": r["match_probability"],
-                    "fellegi_sunter_log2_weight": r["fellegi_sunter_log2_weight"],
-                    "is_reverted": bool(r["is_reverted"]),
-                    "merged_at": r["merged_at"],
-                    "reverted_at": r["reverted_at"],
-                })
+        merge_history = self.get_merge_ledger(workspace_id)
 
         return {
             "workspace_id": workspace_id,
