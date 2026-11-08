@@ -12,7 +12,7 @@ Update this tracker immediately after completing and testing each phase:
 | **06** | `M03` | `AsyncEventBus`, Staging Triage Buffer (`is_staged`) & 24 Modular OSINT Connectors | `[x] COMPLETED` | `test_m03_collectors.py` (5/5 passed) | `phase-6-m03` |
 | **07** | `M05` | 3-Pass Blocked Fellegi-Sunter EM Entity Resolution, Waterfall Charts & Reversible Merge Ledger | `[x] COMPLETED` | `test_m05_entity_resolution.py` (4/4 passed) | `phase-7-m05` |
 | **08** | `M07` | `rustworkx`/SciPy Graph Engine (Leiden, IEF-PageRank, Adamic-Adar) + HDBSCAN & Kleinberg Burst | `[x] COMPLETED` | `test_m07_graph_spatiotemporal.py` (6/6 passed) | `phase-8-m07` |
-| **09** | `M08` | Hybrid RRF Search (FTS5 BM25 + INT8 Vectors) & GraphRAG Assistant with Citation Validator | `[ ] PENDING` | `test_m08_search_and_ai.py` | — |
+| **09** | `M08` | Hybrid RRF Search (FTS5 BM25 + INT8 Vectors) & GraphRAG Assistant with Citation Validator | `[x] COMPLETED` | `test_m08_search_and_ai.py` (4/4 passed) | `phase-9-m08` |
 | **10** | `M09` | FastAPI REST/WebSocket Server & 5-Format Export Engine (`JSON`, `CSV`, `STIX 2.1`, `FtM`, `PROV`) | `[ ] PENDING` | `test_m09_api_and_exports.py` | — |
 | **11** | `M10` | 11-View Dark-Mode Analyst Workstation UI (WebGL/Canvas Graph, Time-Travel, Waterfall ER, Map) | `[ ] PENDING` | UI Smoke Test | — |
 | **12** | QA | Full E2E Integration, OPSEC `PASSIVE_ONLY` Verification & 10k-Record Performance Benchmark | `[ ] PENDING` | `test_e2e_platform.py` | — |
