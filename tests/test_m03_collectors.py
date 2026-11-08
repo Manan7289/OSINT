@@ -12,6 +12,7 @@ from backend.collectors.orchestrator import (
     calculate_composite_vulnerability_risk,
     detect_target_type,
     CollectorOrchestrator,
+    _validate_outbound_url,
 )
 from backend.core.database import DatabaseManager
 
@@ -143,3 +144,23 @@ async def test_http_caching_mechanism(test_db):
     assert from_cache is True
     assert data.get("cached_result") == "success"
     await orc.close()
+
+
+def test_ssrf_guard_blocks_file_and_private_ips():
+    """Test SSRF validation rejects non-HTTP schemes and private/loopback/link-local IP addresses."""
+    # Scheme validation
+    assert _validate_outbound_url("file:///C:/Windows/win.ini") is False
+    assert _validate_outbound_url("ftp://example.com/file.txt") is False
+    assert _validate_outbound_url("gopher://127.0.0.1:70") is False
+
+    # Private and loopback addresses
+    assert _validate_outbound_url("http://127.0.0.1:8000") is False
+    assert _validate_outbound_url("http://localhost:8080") is False
+    assert _validate_outbound_url("http://10.0.0.1/admin") is False
+    assert _validate_outbound_url("http://192.168.1.1/router") is False
+    assert _validate_outbound_url("http://172.16.0.1/private") is False
+    assert _validate_outbound_url("http://169.254.169.254/latest/meta-data") is False
+
+    # Valid external HTTPS target
+    assert _validate_outbound_url("https://8.8.8.8/dns-query") is True
+

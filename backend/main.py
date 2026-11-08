@@ -37,6 +37,9 @@ from backend.nlp.extractor import extractor, refang
 from backend.nlp.forensics import analyze_file
 
 
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB file upload limit
+
+
 # -----------------------------------------------------------------------------
 # Demonstration Workspace Seeding
 # -----------------------------------------------------------------------------
@@ -406,6 +409,8 @@ async def collect_document_upload(
     file: UploadFile = File(...),
 ):
     contents = await file.read()
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds 25 MB limit")
     analysis = analyze_file(file.filename, contents)
 
     ev = db.add_evidence(
@@ -722,6 +727,8 @@ def forensics_paste(workspace_id: str, body: Dict[str, Any] = Body(...)):
 @app.post("/api/workspaces/{workspace_id}/forensics/upload")
 async def forensics_upload(workspace_id: str, file: UploadFile = File(...)):
     contents = await file.read()
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds 25 MB limit")
     analysis = analyze_file(file.filename, contents)
     ev = db.add_evidence(
         workspace_id=workspace_id,

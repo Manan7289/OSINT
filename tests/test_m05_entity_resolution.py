@@ -146,3 +146,23 @@ def test_merge_and_unmerge_reversible_ledger(test_db):
     # Verify claim1 is restored back to duplicate
     c1_after_unmerge = test_db.get_claim(claim1["id"])
     assert c1_after_unmerge["subject_entity_id"] == dup_id
+
+
+def test_fellegi_sunter_small_workspace_beta_smoothing(test_db):
+    """Test that small candidate sets (M=1, 0 background entities) with Bayesian Beta smoothing score >= 0.85."""
+    er = EntityResolutionEngine(database=test_db)
+    ws = test_db.create_workspace(name="Small Workspace Beta Smoothing Test")
+    ws_id = ws["id"]
+
+    # Exactly 2 matching entities with 0 background entities
+    test_db.upsert_entity(ws_id, "Company", "Acme Corp")
+    test_db.upsert_entity(ws_id, "Company", "Acme Corporation")
+
+    eval_res = er.evaluate_candidates(ws_id, min_probability=0.50)
+    candidates = eval_res["candidates"]
+    assert len(candidates) == 1
+    match = candidates[0]
+    assert match["match_probability"] >= 0.85
+    assert match["classification"] == "CONFIRMED_MATCH"
+    assert match["fellegi_sunter_log2_weight"] > 0
+

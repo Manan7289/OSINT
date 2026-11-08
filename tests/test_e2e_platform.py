@@ -444,3 +444,57 @@ def test_e2e_performance_large_batch():
         assert total_time < 3.0
     finally:
         db.delete_workspace(ws_id)
+
+
+def test_10k_hybrid_search_performance():
+    """
+    10,000-Record Hybrid RRF Search Benchmark:
+    Batch-inserts 10,000 records into SQLite FTS5 search index and asserts
+    that hybrid_search() returns top-20 ranked results in < 50 ms.
+    """
+    db.init_db()
+    ws = db.create_workspace(name="10k Search Benchmark", description="FTS5 10,000 records benchmark")
+    ws_id = ws["id"]
+
+    try:
+        # Prepare 10,000 synthetic records
+        records = [
+            (
+                f"rec_{i}",
+                ws_id,
+                "ENTITY" if i % 2 == 0 else "EVIDENCE",
+                f"Target Entity Record {i} Telemetry Node",
+                f"domain_{i}.corp AS{1000 + (i % 500)}",
+                f"Observable intelligence telemetry report for node {i} security infrastructure vulnerability data",
+            )
+            for i in range(10000)
+        ]
+
+        with db.get_connection() as conn:
+            conn.executemany(
+                """
+                INSERT INTO search_index_fts (record_id, workspace_id, record_kind, title, identifiers, body_text)
+                VALUES (?, ?, ?, ?, ?, ?);
+                """,
+                records,
+            )
+
+        search_engine = HybridRRFSearchEngine(database=db)
+
+        # Measure query latency for top-20 results
+        t_start = time.perf_counter()
+        results = search_engine.hybrid_search(
+            workspace_id=ws_id,
+            query="security infrastructure vulnerability",
+            mode="hybrid_rrf",
+            limit=20,
+        )
+        latency_ms = (time.perf_counter() - t_start) * 1000.0
+
+        assert len(results) == 20
+        assert results[0]["title"] is not None
+        # Assert latency strictly < 50 ms
+        assert latency_ms < 50.0, f"Hybrid search latency {latency_ms:.2f} ms exceeded 50 ms limit"
+    finally:
+        db.delete_workspace(ws_id)
+

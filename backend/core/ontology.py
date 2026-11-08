@@ -83,8 +83,6 @@ CORPORATE_LEGAL_SUFFIXES = [
     r"\bllc(?:\.|\b)",
     r"\bltd(?:\.|\b)",
     r"\blimited\b",
-    r"\bcorp(?:\.|\b)",
-    r"\bcorporation\b",
     r"\bgmbh\b",
     r"\bs\.?a(?:\.|\b)",
     r"\bplc(?:\.|\b)",

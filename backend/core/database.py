@@ -505,9 +505,11 @@ class DatabaseManager:
         properties: Optional[Dict[str, Any]] = None,
         aliases: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
+        canonical_value: Optional[str] = None,
     ) -> Dict[str, Any]:
         import uuid
-        canon_val, auto_label, is_shared = canonicalize_entity(ftm_schema, raw_value)
+        auto_canon, auto_label, is_shared = canonicalize_entity(ftm_schema, raw_value)
+        canon_val = canonical_value if canonical_value is not None else auto_canon
         final_label = display_label or auto_label
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
@@ -1095,6 +1097,111 @@ class DatabaseManager:
                 r["citation_audit"] = json.loads(r.pop("citation_audit_json"))
                 r["metadata"] = json.loads(r.pop("metadata_json"))
             return rows
+
+    # -------------------------------------------------------------------------
+    # Entity Merge Ledger (Reversible Audit Trail)
+    # -------------------------------------------------------------------------
+
+    def list_merge_ledger_records(self, workspace_id: str) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.execute(
+                "SELECT * FROM entity_merge_ledger WHERE workspace_id = ? ORDER BY merged_at DESC;",
+                (workspace_id,),
+            )
+            records = []
+            for r in cur.fetchall():
+                row_dict = dict(r)
+                records.append({
+                    "id": row_dict["id"],
+                    "workspace_id": row_dict["workspace_id"],
+                    "winner_entity_id": row_dict["winner_entity_id"],
+                    "absorbed_entity_id": row_dict["absorbed_entity_id"],
+                    "absorbed_entity_snapshot": json.loads(row_dict.get("absorbed_entity_snapshot_json") or "{}"),
+                    "repointed_claims": json.loads(row_dict.get("repointed_claims_json") or "[]"),
+                    "fellegi_sunter_log2_weight": float(row_dict["fellegi_sunter_log2_weight"]),
+                    "match_probability": float(row_dict["match_probability"]),
+                    "waterfall_explanation": json.loads(row_dict.get("waterfall_explanation_json") or "[]"),
+                    "is_reverted": bool(row_dict["is_reverted"]),
+                    "merged_at": row_dict["merged_at"],
+                    "reverted_at": row_dict["reverted_at"],
+                })
+            return records
+
+    def get_merge_ledger_record(self, merge_id: str, workspace_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        query = "SELECT * FROM entity_merge_ledger WHERE id = ?"
+        params: List[Any] = [merge_id]
+        if workspace_id:
+            query += " AND workspace_id = ?"
+            params.append(workspace_id)
+        with self.get_connection() as conn:
+            cur = conn.execute(query, params)
+            row = cur.fetchone()
+            if not row:
+                return None
+            row_dict = dict(row)
+            return {
+                "id": row_dict["id"],
+                "workspace_id": row_dict["workspace_id"],
+                "winner_entity_id": row_dict["winner_entity_id"],
+                "absorbed_entity_id": row_dict["absorbed_entity_id"],
+                "absorbed_entity_snapshot": json.loads(row_dict.get("absorbed_entity_snapshot_json") or "{}"),
+                "repointed_claims": json.loads(row_dict.get("repointed_claims_json") or "[]"),
+                "fellegi_sunter_log2_weight": float(row_dict["fellegi_sunter_log2_weight"]),
+                "match_probability": float(row_dict["match_probability"]),
+                "waterfall_explanation": json.loads(row_dict.get("waterfall_explanation_json") or "[]"),
+                "is_reverted": bool(row_dict["is_reverted"]),
+                "merged_at": row_dict["merged_at"],
+                "reverted_at": row_dict["reverted_at"],
+            }
+
+    def insert_merge_ledger_record(
+        self,
+        merge_id: str,
+        workspace_id: str,
+        winner_entity_id: str,
+        absorbed_entity_id: str,
+        absorbed_entity_snapshot: Dict[str, Any],
+        repointed_claims: List[Dict[str, Any]],
+        fellegi_sunter_log2_weight: float,
+        match_probability: float,
+        waterfall_explanation: List[Dict[str, Any]],
+        merged_at: str,
+    ) -> Dict[str, Any]:
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO entity_merge_ledger (
+                    id, workspace_id, winner_entity_id, absorbed_entity_id,
+                    absorbed_entity_snapshot_json, repointed_claims_json,
+                    fellegi_sunter_log2_weight, match_probability,
+                    waterfall_explanation_json, is_reverted, merged_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?);
+                """,
+                (
+                    merge_id,
+                    workspace_id,
+                    winner_entity_id,
+                    absorbed_entity_id,
+                    json.dumps(absorbed_entity_snapshot),
+                    json.dumps(repointed_claims),
+                    fellegi_sunter_log2_weight,
+                    match_probability,
+                    json.dumps(waterfall_explanation),
+                    merged_at,
+                ),
+            )
+        return self.get_merge_ledger_record(merge_id, workspace_id) or {}
+
+    def revert_merge_ledger_record(self, merge_id: str, workspace_id: Optional[str] = None) -> bool:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        query = "UPDATE entity_merge_ledger SET is_reverted = 1, reverted_at = ? WHERE id = ?"
+        params: List[Any] = [now, merge_id]
+        if workspace_id:
+            query += " AND workspace_id = ?"
+            params.append(workspace_id)
+        with self.get_connection() as conn:
+            cur = conn.execute(query, params)
+            return cur.rowcount > 0
 
 
 # Singleton

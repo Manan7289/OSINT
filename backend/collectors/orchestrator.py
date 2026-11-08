@@ -6,13 +6,17 @@ M03: AsyncEventBus, Staging Triage Buffer & 24 Modular OSINT Connectors.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import datetime
 import hashlib
 import ipaddress
 import json
 import logging
 import re
+import socket
+import ssl
 import time
+import urllib.parse
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Set, Tuple
 
 import httpx
@@ -29,6 +33,51 @@ from backend.core.security import OPSECGuard, circuit_breaker
 from backend.nlp.extractor import extractor
 
 logger = logging.getLogger("localosint.collectors")
+
+
+def _validate_outbound_url(url: str) -> bool:
+    """Validates outbound URL against SSRF, file scheme injection, and private/loopback IP probing.
+    
+    1. Enforces scheme in ('http', 'https') - strictly blocking file://, ftp://, etc.
+    2. Resolves host IP via socket.getaddrinfo() and blocks loopback, link-local, and RFC 1918 private IPs.
+    """
+    if not url or not isinstance(url, str):
+        return False
+    try:
+        parsed = urllib.parse.urlparse(url.strip())
+        if parsed.scheme.lower() not in ("http", "https"):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+
+        # Check if hostname directly represents an IP literal
+        try:
+            direct_ip = ipaddress.ip_address(hostname)
+            if direct_ip.is_private or direct_ip.is_loopback or direct_ip.is_link_local:
+                return False
+        except ValueError:
+            pass
+
+        # Resolve host via getaddrinfo to block loopback/internal aliases (e.g. localhost, local domains)
+        try:
+            addr_info = socket.getaddrinfo(hostname, None)
+            for res in addr_info:
+                ip_str = res[4][0]
+                try:
+                    ip = ipaddress.ip_address(ip_str)
+                    if ip.is_private or ip.is_loopback or ip.is_link_local:
+                        return False
+                except ValueError:
+                    return False
+        except socket.gaierror:
+            # If domain cannot be resolved immediately, block if it looks like a private hostname
+            if hostname.lower() in ("localhost", "ip6-localhost", "ip6-loopback") or hostname.endswith(".local") or hostname.endswith(".internal"):
+                return False
+
+        return True
+    except Exception:
+        return False
 
 
 def detect_target_type(query: str) -> str:
@@ -101,6 +150,11 @@ class CollectorOrchestrator:
         Returns:
             (status_code: int, response_data: Any, from_cache: bool)
         """
+        # SSRF Guard
+        if not _validate_outbound_url(url):
+            logger.warning(f"SSRF guard blocked request to: {url}")
+            return 400, {"error": f"SSRF Protection: URL '{url}' is forbidden"}, False
+
         # Build cache key
         cache_seed = f"{connector_id}:{method}:{url}:{json.dumps(params or {}, sort_keys=True)}:{json.dumps(json_body or {}, sort_keys=True)}"
         cache_key = hashlib.sha256(cache_seed.encode("utf-8")).hexdigest()
@@ -611,6 +665,26 @@ class CollectorOrchestrator:
 
         return entities, claims, data[0] if (isinstance(data, list) and data) else {}
 
+    async def _collect_web_document_osint(self, workspace_id: str, target_query: str, **kwargs) -> Tuple[List[Dict], List[Dict], Dict]:
+        """Fetches web document and extracts observables with strict SSRF validation."""
+        entities: List[Dict] = []
+        claims: List[Dict] = []
+        url = target_query if "://" in target_query else f"https://{target_query}"
+        if not _validate_outbound_url(url):
+            logger.warning(f"SSRF guard blocked web_document_osint target: {url}")
+            return entities, claims, {"error": f"SSRF blocked: URL '{url}' is not permitted"}
+
+        status, data, _ = await self.execute_http("web_document_osint", url)
+        if status == 200 and isinstance(data, dict):
+            raw_text = data.get("raw_text", "")
+            extracted = extractor.extract_all(raw_text)
+            for schema, values in extracted.items():
+                if schema in ("simhash_64", "DGA_Domains"):
+                    continue
+                for val in values:
+                    entities.append({"ftm_schema": schema, "raw_value": val})
+        return entities, claims, data if isinstance(data, dict) else {}
+
     async def _collect_generic_passive(self, workspace_id: str, target_query: str, target_type: str, connector_cfg: Dict[str, Any], **kwargs) -> Tuple[List[Dict], List[Dict], Dict]:
         """Default safe handler for registered connectors."""
         entities = [{"ftm_schema": target_type or "Domain", "raw_value": target_query}]
@@ -629,7 +703,7 @@ class CollectorOrchestrator:
         connectors: Optional[List[str]] = None,
         pivot_depth: int = 1,
     ) -> Dict[str, Any]:
-        """Executes full multi-connector OSINT playbook with BFS recursive pivoting."""
+        """Executes full multi-connector OSINT playbook with BFS recursive pivoting and ThreadPool concurrency."""
         resolved_type = detect_target_type(target_query) if target_type == "AUTO" else target_type
         selected_connectors = connectors or ["dns_doh", "rdap_bootstrap", "crtsh_ct", "ripestat_data"]
 
@@ -641,6 +715,8 @@ class CollectorOrchestrator:
         staged_entities = 0
         executed_tasks: List[str] = []
 
+        ssl_context = ssl.create_default_context()
+
         while queue:
             curr_query, curr_type, curr_depth = queue.pop(0)
             norm_key = f"{curr_type}:{curr_query.lower()}"
@@ -648,8 +724,8 @@ class CollectorOrchestrator:
                 continue
             seen_queries.add(norm_key)
 
-            # Run all selected connectors in parallel for this target
-            tasks_to_run = []
+            # Create task records for each selected connector
+            task_records = []
             for cid in selected_connectors:
                 t = self.db.create_task(
                     workspace_id=workspace_id,
@@ -659,22 +735,40 @@ class CollectorOrchestrator:
                     pivot_depth=curr_depth,
                 )
                 executed_tasks.append(t["id"])
-                tasks_to_run.append(
-                    self.run_connector(
-                        workspace_id=workspace_id,
-                        connector_id=cid,
-                        target_query=curr_query,
-                        target_type=curr_type,
-                        task_id=t["id"],
-                    )
-                )
+                task_records.append((cid, t["id"]))
 
-            results = await asyncio.gather(*tasks_to_run, return_exceptions=True)
-            for res in results:
-                if isinstance(res, dict):
-                    total_entities += res.get("entities", 0)
-                    total_claims += res.get("claims", 0)
-                    staged_entities += res.get("staged", 0)
+            # Execute multiple connectors for the same hop concurrently in ThreadPoolExecutor
+            def _worker_run(cid: str, tid: str):
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    return loop.run_until_complete(
+                        self.run_connector(
+                            workspace_id=workspace_id,
+                            connector_id=cid,
+                            target_query=curr_query,
+                            target_type=curr_type,
+                            task_id=tid,
+                        )
+                    )
+                finally:
+                    loop.close()
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                future_map = {
+                    executor.submit(_worker_run, cid, tid): cid
+                    for cid, tid in task_records
+                }
+                for future in concurrent.futures.as_completed(future_map):
+                    cid = future_map[future]
+                    try:
+                        res = future.result(timeout=8.0)
+                        if isinstance(res, dict):
+                            total_entities += res.get("entities", 0)
+                            total_claims += res.get("claims", 0)
+                            staged_entities += res.get("staged", 0)
+                    except Exception as exc:
+                        logger.warning(f"Connector {cid} timed out or failed in worker thread: {exc}")
 
         return {
             "workspace_id": workspace_id,
@@ -687,6 +781,9 @@ class CollectorOrchestrator:
             "staged_entities": staged_entities,
             "status": "COMPLETED",
         }
+
+    # Alias for specification compatibility
+    run_investigation_workflow = run_playbook
 
 
 # Singleton

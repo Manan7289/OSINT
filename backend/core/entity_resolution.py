@@ -119,12 +119,23 @@ def run_fellegi_sunter_em(
         odds = (lam / max(1e-4, 1.0 - lam)) * (2.0 ** np.clip(total_log2_w, -30, 30))
         p = odds / (1.0 + odds)
 
-        # M-step
-        p_sum = max(1e-6, np.sum(p))
-        q_sum = max(1e-6, np.sum(1.0 - p))
-        m = np.clip(np.sum(p[:, None] * gamma_matrix, axis=0) / p_sum, 0.55, 0.995)
-        u = np.clip(np.sum((1.0 - p[:, None]) * gamma_matrix, axis=0) / q_sum, 0.005, 0.45)
-        lam = float(np.clip(np.mean(p), 0.02, 0.50))
+        # M-step with Bayesian Beta prior smoothing
+        alpha_m, beta_m = 8.0, 1.0
+        alpha_u, beta_u = 1.0, 9.0
+        p_sum = float(np.sum(p))
+        q_sum = float(np.sum(1.0 - p))
+
+        m = np.clip(
+            (alpha_m + np.sum(p[:, None] * gamma_matrix, axis=0)) / (alpha_m + beta_m + p_sum),
+            0.60,
+            0.995,
+        )
+        u = np.clip(
+            (alpha_u + np.sum((1.0 - p[:, None]) * gamma_matrix, axis=0)) / (alpha_u + beta_u + q_sum),
+            0.005,
+            0.40,
+        )
+        lam = float(np.clip(np.mean(p), 0.05, 0.85))
 
     return lam, m.tolist(), u.tolist(), p.tolist(), total_log2_w
 
@@ -202,24 +213,7 @@ class EntityResolutionEngine:
 
     def get_merge_ledger(self, workspace_id: str) -> List[Dict[str, Any]]:
         """Retrieves the full reversible merge history from entity_merge_ledger."""
-        merge_history = []
-        with self.db.get_connection() as conn:
-            cur = conn.execute(
-                "SELECT * FROM entity_merge_ledger WHERE workspace_id = ? ORDER BY merged_at DESC;",
-                (workspace_id,),
-            )
-            for r in cur.fetchall():
-                merge_history.append({
-                    "id": r["id"],
-                    "winner_entity_id": r["winner_entity_id"],
-                    "absorbed_entity_id": r["absorbed_entity_id"],
-                    "match_probability": r["match_probability"],
-                    "fellegi_sunter_log2_weight": r["fellegi_sunter_log2_weight"],
-                    "is_reverted": bool(r["is_reverted"]),
-                    "merged_at": r["merged_at"],
-                    "reverted_at": r["reverted_at"],
-                })
-        return merge_history
+        return self.db.list_merge_ledger_records(workspace_id)
 
     def evaluate_candidates(
         self, workspace_id: str, min_probability: float = 0.50
@@ -437,23 +431,18 @@ class EntityResolutionEngine:
 
     def unmerge_entity(self, workspace_id: str, merge_id: str) -> Dict[str, Any]:
         """100% reversible unmerge: restores absorbed entity from snapshot and restores claims."""
+        ledger_rec = self.db.get_merge_ledger_record(merge_id=merge_id, workspace_id=workspace_id)
+        if not ledger_rec:
+            raise ValueError(f"Merge record {merge_id} not found")
+
+        if ledger_rec["is_reverted"]:
+            raise ValueError(f"Merge {merge_id} is already reverted")
+
+        snap = ledger_rec["absorbed_entity_snapshot"]
+        repointed = ledger_rec["repointed_claims"]
+        abs_id = ledger_rec["absorbed_entity_id"]
+
         with self.db.get_connection() as conn:
-            cur = conn.execute(
-                "SELECT * FROM entity_merge_ledger WHERE id = ? AND workspace_id = ?;",
-                (merge_id, workspace_id),
-            )
-            ledger_rec = cur.fetchone()
-            if not ledger_rec:
-                raise ValueError(f"Merge record {merge_id} not found")
-
-            if ledger_rec["is_reverted"]:
-                raise ValueError(f"Merge {merge_id} is already reverted")
-
-            now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-            snap = json.loads(ledger_rec["absorbed_entity_snapshot_json"])
-            repointed = json.loads(ledger_rec["repointed_claims_json"])
-            abs_id = ledger_rec["absorbed_entity_id"]
-
             # 1. Restore absorbed entity
             conn.execute(
                 """
@@ -488,11 +477,8 @@ class EntityResolutionEngine:
                 elif role == "object":
                     conn.execute("UPDATE claims SET object_entity_id = ? WHERE id = ?;", (orig_id, cid))
 
-            # 3. Mark merge record as reverted
-            conn.execute(
-                "UPDATE entity_merge_ledger SET is_reverted = 1, reverted_at = ? WHERE id = ?;",
-                (now, merge_id),
-            )
+        # 3. Mark merge record as reverted
+        self.db.revert_merge_ledger_record(merge_id=merge_id, workspace_id=workspace_id)
 
         self.db.append_audit_log(
             "ENTITY_UNMERGED",
