@@ -58,6 +58,27 @@ class CircuitBreaker:
                     return "HALF_OPEN"
             return entry["state"]
 
+    def allow_request(self, connector_id: str) -> bool:
+        """Thread-safe check returning True if a request may proceed, False if circuit is OPEN."""
+        with self._lock:
+            entry = self._get_entry(connector_id)
+            now = time.monotonic()
+            state = entry["state"]
+            if state == "CLOSED":
+                return True
+            if state == "OPEN":
+                if now - entry["last_failure_time"] >= self.cooldown:
+                    entry["state"] = "HALF_OPEN"
+                    entry["probe_in_flight"] = True
+                    return True
+                return False
+            if state == "HALF_OPEN":
+                if not entry["probe_in_flight"]:
+                    entry["probe_in_flight"] = True
+                    return True
+                return False
+            return True
+
     def can_execute(self, connector_id: str) -> bool:
         """Returns True if request may proceed, or raises CircuitOpenError."""
         with self._lock:
@@ -155,6 +176,20 @@ class OPSECGuard:
         "api.securitytrails.com",
         "search.censys.io",
         "otx.alienvault.com",
+        "opensky-network.org",
+        "api.adsb.lol",
+        "meri.digitraffic.fi",
+        "stream.aisstream.io",
+        "celestrak.org",
+        "ll.thespacedevs.com",
+        "earthquake.usgs.gov",
+        "eonet.gsfc.nasa.gov",
+        "api.weather.gov",
+        "api.open-meteo.com",
+        "cwwp2.dot.ca.gov",
+        "treasury.gov",
+        "server.arcgisonline.com",
+        "tile.openstreetmap.org",
     }
 
     @classmethod

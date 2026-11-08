@@ -91,53 +91,109 @@ def token_jaccard_similarity(s1: str, s2: str) -> float:
     return intersection / union if union > 0 else 0.0
 
 
+class FellegiSunterResolver:
+    """Fellegi-Sunter EM Entity Resolver with Bayesian Beta prior smoothing."""
+
+    def __init__(
+        self,
+        m_initial: float = 0.88,
+        u_initial: float = 0.12,
+        alpha_m: float = 8.0,
+        beta_m: float = 1.0,
+        alpha_u: float = 1.0,
+        beta_u: float = 9.0,
+    ) -> None:
+        self.m_initial = m_initial
+        self.u_initial = u_initial
+        self.alpha_m = alpha_m
+        self.beta_m = beta_m
+        self.alpha_u = alpha_u
+        self.beta_u = beta_u
+        self.m_probs: np.ndarray | None = None
+        self.u_probs: np.ndarray | None = None
+        self.lambda_param: float = 0.15
+
+    def fit_em(
+        self, gamma_matrix: np.ndarray, max_iter: int = 15
+    ) -> Tuple[float, List[float], List[float], List[float], np.ndarray]:
+        """Expectation-Maximization fitting with Bayesian Beta prior smoothing."""
+        M, K = gamma_matrix.shape
+        if M == 0:
+            self.m_probs = np.full(K, self.m_initial)
+            self.u_probs = np.full(K, self.u_initial)
+            return self.lambda_param, self.m_probs.tolist(), self.u_probs.tolist(), [], np.array([])
+
+        lam = self.lambda_param
+        m = np.full(K, self.m_initial, dtype=np.float64)
+        u = np.full(K, self.u_initial, dtype=np.float64)
+        total_log2_w = np.zeros(M)
+        p = np.full(M, lam)
+
+        for _ in range(max_iter):
+            # E-step
+            log_bf = gamma_matrix * np.log2(np.clip(m / u, 1e-4, 1e4)) + (
+                1.0 - gamma_matrix
+            ) * np.log2(np.clip((1.0 - m) / (1.0 - u), 1e-4, 1e4))
+            total_log2_w = np.sum(log_bf, axis=1)
+
+            odds = (lam / max(1e-4, 1.0 - lam)) * (2.0 ** np.clip(total_log2_w, -30, 30))
+            p = odds / (1.0 + odds)
+
+            # M-step with Bayesian Beta prior smoothing
+            m_num = np.sum(p[:, None] * gamma_matrix, axis=0)
+            g_sum = float(np.sum(p))
+            u_num = np.sum((1.0 - p[:, None]) * gamma_matrix, axis=0)
+            one_minus_g_sum = float(np.sum(1.0 - p))
+
+            m = np.clip(
+                (self.alpha_m + m_num) / (self.alpha_m + self.beta_m + g_sum),
+                0.50,
+                0.995,
+            )
+            u = np.clip(
+                (self.alpha_u + u_num) / (self.alpha_u + self.beta_u + one_minus_g_sum),
+                0.005,
+                0.40,
+            )
+            lam = float(np.clip(np.mean(p), 0.05, 0.85))
+
+        self.m_probs = m
+        self.u_probs = u
+        self.lambda_param = lam
+        return lam, m.tolist(), u.tolist(), p.tolist(), total_log2_w
+
+
 def run_fellegi_sunter_em(
     gamma_matrix: np.ndarray, max_iter: int = 15
 ) -> Tuple[float, List[float], List[float], List[float], np.ndarray]:
-    """Unsupervised Expectation-Maximization (EM) Fellegi-Sunter parameter estimation.
-    
-    Returns:
-        (lambda_prev, m_weights, u_weights, match_probabilities, total_log2_weights)
+    """Unsupervised Expectation-Maximization (EM) Fellegi-Sunter parameter estimation."""
+    resolver = FellegiSunterResolver()
+    return resolver.fit_em(gamma_matrix, max_iter=max_iter)
+
+
+def cross_reference_sanctions(entity_dict: Dict[str, Any], database: Any) -> Optional[Dict[str, Any]]:
+    """Deterministically cross-references an aircraft, vessel, or organization against sanctions_index.
+    Matches on MMSI, IMO, ICAO24, Tail Number, or high Jaro-Winkler (>= 0.94) name match.
     """
-    M, K = gamma_matrix.shape
-    if M == 0:
-        return 0.15, [0.88] * K, [0.12] * K, [], np.array([])
+    if not database:
+        return None
 
-    lam = 0.15
-    m = np.full(K, 0.88, dtype=np.float64)
-    u = np.full(K, 0.12, dtype=np.float64)
-    total_log2_w = np.zeros(M)
-    p = np.full(M, lam)
+    # Check identifiers
+    mmsi = entity_dict.get("mmsi") or entity_dict.get("properties", {}).get("mmsi")
+    imo = entity_dict.get("imo") or entity_dict.get("properties", {}).get("imo")
+    icao24 = entity_dict.get("icao24") or entity_dict.get("properties", {}).get("icao24")
+    tail = entity_dict.get("tail_number") or entity_dict.get("callsign") or entity_dict.get("properties", {}).get("tail_number")
+    name = entity_dict.get("canonical_value") or entity_dict.get("display_label") or entity_dict.get("vessel_name")
 
-    for _ in range(max_iter):
-        # E-step
-        log_bf = gamma_matrix * np.log2(np.clip(m / u, 1e-4, 1e4)) + (
-            1.0 - gamma_matrix
-        ) * np.log2(np.clip((1.0 - m) / (1.0 - u), 1e-4, 1e4))
-        total_log2_w = np.sum(log_bf, axis=1)
-
-        odds = (lam / max(1e-4, 1.0 - lam)) * (2.0 ** np.clip(total_log2_w, -30, 30))
-        p = odds / (1.0 + odds)
-
-        # M-step with Bayesian Beta prior smoothing
-        alpha_m, beta_m = 8.0, 1.0
-        alpha_u, beta_u = 1.0, 9.0
-        p_sum = float(np.sum(p))
-        q_sum = float(np.sum(1.0 - p))
-
-        m = np.clip(
-            (alpha_m + np.sum(p[:, None] * gamma_matrix, axis=0)) / (alpha_m + beta_m + p_sum),
-            0.60,
-            0.995,
+    if hasattr(database, "match_sanction"):
+        return database.match_sanction(
+            mmsi=str(mmsi) if mmsi else None,
+            imo=str(imo) if imo else None,
+            icao24=str(icao24).lower() if icao24 else None,
+            tail_number=str(tail) if tail else None,
+            name=str(name) if name else None,
         )
-        u = np.clip(
-            (alpha_u + np.sum((1.0 - p[:, None]) * gamma_matrix, axis=0)) / (alpha_u + beta_u + q_sum),
-            0.005,
-            0.40,
-        )
-        lam = float(np.clip(np.mean(p), 0.05, 0.85))
-
-    return lam, m.tolist(), u.tolist(), p.tolist(), total_log2_w
+    return None
 
 
 class EntityResolutionEngine:

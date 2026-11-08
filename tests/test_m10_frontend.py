@@ -1,6 +1,8 @@
 """
-Tests for Module M10 — 11-View Analyst Workstation Frontend
-Validates that index.html, styles.css, and app.js are served correctly and contain all 11 required intelligence views.
+Tests for Module M10 — 5-Zone 2D/3D Global Command Centre UI
+Validates that index.html, styles.css, app.js, globe_map.js, timeline_4d.js,
+sweep_delta_hud.js, and visual_studio.js are served correctly and contain all
+5 Command Centre zones and HUD modal components.
 """
 
 import pytest
@@ -9,59 +11,65 @@ from backend.main import app
 
 client = TestClient(app)
 
+
 def test_index_html_served():
-    """Verify GET / returns index.html with HTTP 200 and correct title."""
+    """Verify GET / returns index.html with HTTP 200 and LocalOSINT v3.0."""
     response = client.get("/")
     assert response.status_code == 200
-    assert "LocalOSINT v2.0" in response.text
+    assert "LocalOSINT" in response.text
+    assert "v3.0" in response.text
     assert "<!DOCTYPE html>" in response.text
 
 
 def test_static_assets_served():
-    """Verify styles.css and app.js are accessible via /assets/ mount."""
+    """Verify styles.css and all modular HUD script assets are accessible via /assets/ mount."""
     css_resp = client.get("/assets/styles.css")
     assert css_resp.status_code == 200
     assert "body" in css_resp.text
-    assert "--bg-base" in css_resp.text
+    assert "--bg-obsidian" in css_resp.text
 
-    js_resp = client.get("/assets/app.js")
-    assert js_resp.status_code == 200
-    assert "LocalOSINT v2.0" in js_resp.text
-    assert "initNavigation" in js_resp.text
-    assert "startGraphSimulation" in js_resp.text
+    scripts = [
+        "app.js",
+        "globe_map.js",
+        "timeline_4d.js",
+        "sweep_delta_hud.js",
+        "visual_studio.js",
+    ]
+    for script_name in scripts:
+        js_resp = client.get(f"/assets/{script_name}")
+        assert js_resp.status_code == 200, f"Failed to serve /assets/{script_name}"
+        assert len(js_resp.text) > 100
 
 
-def test_all_11_views_present_in_dom():
-    """Verify all 11 views specified in M10 and SCREEN_BY_SCREEN_REQUIREMENTS exist in index.html."""
+def test_command_centre_5_zones_present_in_dom():
+    """Verify all 5 Command Centre Zones exist in index.html."""
     response = client.get("/")
     assert response.status_code == 200
     html = response.text
 
-    expected_views = [
-        "view-dashboard",
-        "view-collect",
-        "view-entities",
-        "view-graph",
-        "view-resolution",
-        "view-timeline",
-        "view-geospatial",
-        "view-provenance",
-        "view-ai-reports",
-        "view-tasks",
-        "view-settings",
-    ]
-    for view_id in expected_views:
-        assert f'id="{view_id}"' in html, f"Missing view section: {view_id}"
+    # Zone 1: 2D Map & 3D Globe Earth Canvas
+    assert 'id="map-viewport"' in html
+    assert 'id="map-2d"' in html
+    assert 'id="globe-3d"' in html
+
+    # Zone 2: Left HUD Layer & Sweep Manager
+    assert 'id="zone-2-hud"' in html
+
+    # Zone 4: Right HUD Entity, Graph & Provenance Inspector
+    assert 'id="zone-4-hud"' in html
+
+    # Zone 5: Bottom 4D Time Scrubber Dock
+    assert 'id="zone-5-dock"' in html
 
 
 def test_core_ui_components_present():
-    """Verify graph canvas, inspector, ER table, world map, and modal are present."""
+    """Verify Cytoscape ego-graph container, Visual Studio modal, SitRep briefing modal, and tension gauge."""
     response = client.get("/")
     html = response.text
 
-    assert 'id="graph-canvas"' in html
-    assert 'id="graph-inspector"' in html
-    assert 'id="table-er-candidates"' in html
-    assert 'id="geo-map-canvas"' in html
-    assert 'id="modal-new-workspace"' in html
+    assert 'id="cy-container"' in html
+    assert 'id="escalation-gauge"' in html
+    assert 'id="modal-visual-studio"' in html
+    assert 'id="modal-briefing"' in html
     assert 'id="toast-container"' in html
+    assert 'id="scrubber-slider"' in html

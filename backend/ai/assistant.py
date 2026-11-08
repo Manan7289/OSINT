@@ -21,16 +21,7 @@ from backend.core.graph_analytics import graph_engine
 def validate_citation_entailment(
     text: str, valid_evidence_ids: Set[str]
 ) -> Dict[str, Any]:
-    """Validates every [ev_xxxx] citation in the generated response against workspace evidence artifacts.
-    
-    Returns:
-        {
-          "total_citations": int,
-          "valid_citations": List[str],
-          "hallucinated_citations": List[str],
-          "citation_integrity_score": float [0.0..1.0]
-        }
-    """
+    """Validates every [ev_xxxx] citation in the generated response against workspace evidence artifacts."""
     pattern = re.compile(r"\[(ev_[a-zA-Z0-9_-]+)\]")
     found_citations = pattern.findall(text)
 
@@ -52,6 +43,80 @@ def validate_citation_entailment(
         "hallucinated_citations": sorted(list(set(hallucinated))),
         "citation_integrity_score": round(score, 4),
     }
+
+
+def validate_citations(
+    text: str, valid_citation_ids: Set[str] | list[str]
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """Strict Citation Enforcement Validator.
+    Every factual sentence must carry a valid [ev_...], [PROV:...], or [DELTA:...] citation.
+    Any uncited or hallucinated factual claim is stripped.
+    Enforces is_valid = (valid_ratio == 1.0 and len(stripped_sentences) == 0).
+    """
+    valid_set = set(valid_citation_ids)
+    pattern = re.compile(r"\[([a-zA-Z0-9_:-]+)\]")
+
+    valid_citations = []
+    hallucinated_citations = []
+    stripped_sentences = []
+    preserved_sentences = []
+
+    lines = text.split("\n")
+    for line in lines:
+        stripped_line = line.strip()
+        if not stripped_line:
+            preserved_sentences.append(line)
+            continue
+
+        # Headers, divider, italics notes
+        if stripped_line.startswith("#") or (stripped_line.startswith("*") and not stripped_line.startswith("*-")):
+            preserved_sentences.append(line)
+            continue
+
+        raw_cites = pattern.findall(line)
+        # Filter to citation identifiers (ev_*, PROV:*, DELTA:*)
+        cites = [
+            c for c in raw_cites
+            if c.startswith("ev_") or c.startswith("PROV:") or c.startswith("DELTA:")
+        ]
+
+        if not cites:
+            # Bullet point or factual sentence without citation
+            if stripped_line.startswith("- ") or len(stripped_line.split()) > 4:
+                stripped_sentences.append(line)
+                continue
+            else:
+                preserved_sentences.append(line)
+                continue
+
+        line_has_hallucination = False
+        for c in cites:
+            if c in valid_set or c.endswith(":none"):
+                valid_citations.append(c)
+            else:
+                hallucinated_citations.append(c)
+                line_has_hallucination = True
+
+        if line_has_hallucination:
+            stripped_sentences.append(line)
+        else:
+            preserved_sentences.append(line)
+
+    total_found = len(valid_citations) + len(hallucinated_citations)
+    valid_ratio = (len(valid_citations) / total_found) if total_found > 0 else (1.0 if not stripped_sentences else 0.0)
+    is_valid = (valid_ratio == 1.0 and len(stripped_sentences) == 0)
+    cleaned_text = "\n".join(preserved_sentences)
+
+    audit = {
+        "is_valid": is_valid,
+        "valid_ratio": round(valid_ratio, 4),
+        "total_citations": total_found,
+        "valid_citations": sorted(list(set(valid_citations))),
+        "hallucinated_citations": sorted(list(set(hallucinated_citations))),
+        "stripped_sentences_count": len(stripped_sentences),
+        "stripped_sentences": stripped_sentences,
+    }
+    return is_valid, cleaned_text, audit
 
 
 class GraphRAGAssistant:
@@ -191,6 +256,78 @@ class GraphRAGAssistant:
             workspace_id,
         )
         return created
+
+    def generate_sweep_briefing(self, sweep_id: str = "latest") -> Dict[str, Any]:
+        """Synthesizes top deltas, sanctions matches, and geofence breaches into an executive Markdown SitRep."""
+        if sweep_id == "latest":
+            latest_run = self.db.get_latest_sweep_run() if hasattr(self.db, "get_latest_sweep_run") else None
+            if not latest_run:
+                return {
+                    "sweep_id": "none",
+                    "briefing_markdown": "# Executive Intelligence Briefing (SitRep)\n*No sweep records available. Run a collection sweep to populate.*",
+                    "escalation_score": 0.0,
+                    "deltas_count": 0,
+                    "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                }
+            sweep_id = latest_run["sweep_id"]
+            run_data = latest_run
+        else:
+            run_data = self.db.get_sweep_run(sweep_id) if hasattr(self.db, "get_sweep_run") else {}
+            if not run_data:
+                run_data = self.db.get_latest_sweep_run() if hasattr(self.db, "get_latest_sweep_run") else {}
+
+        deltas = self.db.get_sweep_deltas(sweep_id) if hasattr(self.db, "get_sweep_deltas") else []
+
+        sanctions = [d for d in deltas if d.get("delta_type") == "SANCTION_MATCH_DETECTED"]
+        geofences = [d for d in deltas if d.get("delta_type") == "ENTERED_GEOFENCE"]
+        escalations = [d for d in deltas if d.get("delta_type") == "ESCALATED_RISK"]
+        new_entities = [d for d in deltas if d.get("delta_type") == "NEW_ENTITY"]
+        dark_gaps = [d for d in deltas if d.get("delta_type") == "AIS_DARK_GAP"]
+
+        escalation_score = run_data.get("escalation_score", 0.0) if run_data else 0.0
+
+        lines = [
+            f"# Executive Intelligence Briefing (SitRep) — Sweep `{sweep_id}`",
+            f"**Global Escalation Index:** `{escalation_score:.1f}/100` | **Generated:** {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n",
+            "### 1. Sanctions & Maritime Dark-Ship Anomalies",
+        ]
+        if sanctions or dark_gaps:
+            for s in sanctions[:5]:
+                lines.append(f"- **[SANCTION DETECTED]** {s['title']}: {s['description']} [DELTA:{s['delta_id']}]")
+            for dg in dark_gaps[:5]:
+                lines.append(f"- **[AIS DARK GAP]** {dg['title']}: {dg['description']} [DELTA:{dg['delta_id']}]")
+        else:
+            lines.append("- No new OFAC SDN sanction matches or anomalous AIS gaps detected in this sweep. [DELTA:none]")
+
+        lines.append("\n### 2. Geofence Breaches & Monitored Watch Zones")
+        if geofences:
+            for g in geofences[:5]:
+                lines.append(f"- **[GEOFENCE BREACH]** {g['title']}: {g['description']} [DELTA:{g['delta_id']}]")
+        else:
+            lines.append("- All monitored watch-zones reported zero unauthorized asset intrusions. [DELTA:none]")
+
+        lines.append("\n### 3. Kinetic & Hazard Escalations")
+        if escalations:
+            for e in escalations[:5]:
+                lines.append(f"- **[ESCALATION]** {e['title']}: {e['description']} [DELTA:{e['delta_id']}]")
+        else:
+            lines.append("- Seismic, thermal anomaly, and aviation transponder severity indices remain within baseline. [DELTA:none]")
+
+        lines.append("\n### 4. Newly Ingested Intelligence Signals")
+        if new_entities:
+            for n in new_entities[:6]:
+                lines.append(f"- **[NEW ASSET]** {n['title']}: {n['description']} [DELTA:{n['delta_id']}]")
+        else:
+            lines.append("- Zero newly emerged novel entities in this collection cycle. [DELTA:none]")
+
+        briefing_md = "\n".join(lines)
+        return {
+            "sweep_id": sweep_id,
+            "briefing_markdown": briefing_md,
+            "escalation_score": escalation_score,
+            "deltas_count": len(deltas),
+            "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
 
 
 # Singleton

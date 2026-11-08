@@ -1,0 +1,13 @@
+sequenceDiagram
+    participant Timer as 15m Sweep Timer
+    participant Pool as ThreadPoolExecutor(8)
+    participant APIs as 18 Geospatial & Cyber Feeds
+    participant OFAC as Sanctions Matcher
+    participant Delta as Sweep-Delta Engine
+    participant SSE as SSE / Telegram / Discord
+    Timer->>Pool: Start Sweep #N
+    Pool->>APIs: Fetch Live Feeds (with TTL Cache & CircuitBreaker)
+    APIs-->>Pool: Normalized Entities & Geo Tracks
+    Pool->>OFAC: Match ICAO24/Tail & MMSI/IMO vs OFAC SDN
+    OFAC-->>Delta: Flagged Assets & Updated Risk Scores
+    Delta->>SSE: Broadcast Deltas + Geofence Breaches + SitRep

@@ -5,15 +5,193 @@ M02: Bitemporal SQLite WAL/FTS5/R*Tree & FollowTheMoney Storage Engine.
 
 from __future__ import annotations
 
+from enum import Enum
 import ipaddress
 import re
 import unicodedata
-from typing import List, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+from pydantic import BaseModel, Field
 
 try:
     import idna
 except ImportError:
     idna = None
+
+
+class EntityType(str, Enum):
+    PERSON = "PERSON"
+    ORGANIZATION = "ORGANIZATION"
+    DOMAIN = "DOMAIN"
+    IP_ADDRESS = "IP_ADDRESS"
+    EMAIL = "EMAIL"
+    USERNAME = "USERNAME"
+    LOCATION = "LOCATION"
+    EVENT = "EVENT"
+    VULNERABILITY = "VULNERABILITY"
+    AIRCRAFT = "AIRCRAFT"
+    VESSEL = "VESSEL"
+    SATELLITE = "SATELLITE"
+    CAMERA = "CAMERA"
+    VISUAL_ASSET = "VISUAL_ASSET"
+
+
+class EdgeType(str, Enum):
+    RESOLVES_TO = "RESOLVES_TO"
+    HOSTED_ON = "HOSTED_ON"
+    ISSUED_TO = "ISSUED_TO"
+    AFFECTS = "AFFECTS"
+    EXPLOITED_BY = "EXPLOITED_BY"
+    LOCATED_AT = "LOCATED_AT"
+    ASSOCIATED_WITH = "ASSOCIATED_WITH"
+    COMMUNICATES_WITH = "COMMUNICATES_WITH"
+    OWNS = "OWNS"
+    MENTIONED_IN = "MENTIONED_IN"
+    DERIVED_FROM = "DERIVED_FROM"
+    MERGED_INTO = "MERGED_INTO"
+    SANCTIONED_UNDER = "SANCTIONED_UNDER"
+    PROXIMATE_TO_EVENT = "PROXIMATE_TO_EVENT"
+    POTENTIAL_STS_TRANSFER = "POTENTIAL_STS_TRANSFER"
+    ENTERED_GEOFENCE = "ENTERED_GEOFENCE"
+    VISUALLY_SIMILAR_TO = "VISUALLY_SIMILAR_TO"
+    CAPTURED_NEAR = "CAPTURED_NEAR"
+
+
+class TelemetryStatus(str, Enum):
+    LIVE = "LIVE"
+    DELAYED = "DELAYED"
+    ORBITAL_PROPAGATED = "ORBITAL_PROPAGATED"
+    HISTORICAL = "HISTORICAL"
+    OFFLINE_BOOTSTRAP = "OFFLINE_BOOTSTRAP"
+
+
+class GeoTrackPoint(BaseModel):
+    track_id: str
+    entity_id: Optional[str] = None
+    layer_type: str
+    lat: float
+    lon: float
+    altitude_m: float = 0.0
+    velocity_mps: float = 0.0
+    heading_deg: float = 0.0
+    telemetry_status: TelemetryStatus = TelemetryStatus.LIVE
+    is_sanctioned: bool = False
+    is_military: bool = False
+    squawk: Optional[str] = None
+    metadata_json: Dict[str, Any] = Field(default_factory=dict)
+    observed_at: str
+
+
+class SweepDelta(BaseModel):
+    delta_id: str
+    sweep_id: str
+    entity_id: Optional[str] = None
+    delta_type: str
+    severity: str
+    title: str
+    description: str
+    prev_value_json: Dict[str, Any] = Field(default_factory=dict)
+    curr_value_json: Dict[str, Any] = Field(default_factory=dict)
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    created_at: str
+
+
+class SweepRun(BaseModel):
+    sweep_id: str
+    investigation_id: str = "default"
+    started_at: str
+    completed_at: Optional[str] = None
+    status: str = "RUNNING"
+    sources_polled: int = 0
+    sources_succeeded: int = 0
+    new_entities_count: int = 0
+    escalated_count: int = 0
+    sanction_matches_count: int = 0
+    geofence_alerts_count: int = 0
+    escalation_score: float = 0.0
+    summary_briefing_md: str = ""
+
+
+class SanctionRecord(BaseModel):
+    sanction_id: str
+    sdn_name: str
+    sdn_type: str
+    program: str
+    mmsi: Optional[str] = None
+    imo: Optional[str] = None
+    icao24: Optional[str] = None
+    tail_number: Optional[str] = None
+    flag_country: Optional[str] = None
+    remarks: Optional[str] = None
+    updated_at: str
+
+
+class GeofenceZone(BaseModel):
+    geofence_id: str
+    name: str
+    polygon_geojson: str
+    monitored_layers_json: List[str] = Field(default_factory=lambda: ["AIRCRAFT", "VESSEL", "EARTHQUAKE", "CONFLICT"])
+    min_severity: str = "MEDIUM"
+    notify_channels_json: List[str] = Field(default_factory=lambda: ["SSE"])
+    is_active: bool = True
+    created_at: str
+
+
+class VisualAsset(BaseModel):
+    asset_id: str
+    investigation_id: str = "default"
+    entity_id: Optional[str] = None
+    filename: str
+    sha256_hash: str
+    phash_64: str
+    dhash_64: str
+    ahash_64: str
+    width: int
+    height: int
+    laplacian_sharpness: float
+    quality_grade: str
+    faces_detected: int = 0
+    bystanders_blurred: bool = True
+    exif_json: Dict[str, Any] = Field(default_factory=dict)
+    c2pa_json: Dict[str, Any] = Field(default_factory=dict)
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    redacted_image_b64: Optional[str] = None
+    created_at: str
+
+
+class ConsentedFaceEntry(BaseModel):
+    gallery_id: str
+    subject_name: str
+    consent_purpose: str
+    consent_attestation: bool = True
+    embedding_blob: bytes
+    image_sha256: str
+    laplacian_sharpness: float
+    enrolled_at: str
+    expires_at: str
+
+
+class VisualAnalysisReport(BaseModel):
+    asset_id: str
+    filename: str
+    sha256: str
+    phash: str
+    dhash: str
+    ahash: str
+    dimensions: Tuple[int, int]
+    laplacian_sharpness: float
+    quality_grade: str
+    verification_allowed: bool
+    faces_count: int
+    bystanders_blurred: bool
+    redacted_image_base64: Optional[str] = None
+    exif_metadata: Dict[str, Any] = Field(default_factory=dict)
+    c2pa_metadata: Dict[str, Any] = Field(default_factory=dict)
+    coordinates: Optional[Tuple[float, float]] = None
+    similar_assets: List[Dict[str, Any]] = Field(default_factory=list)
+
 
 # Valid FollowTheMoney (FtM) Entity Schemas
 FTM_SCHEMAS = {
@@ -34,6 +212,11 @@ FTM_SCHEMAS = {
     "Document",
     "NewsArticle",
     "GitHubProfile",
+    "Aircraft",
+    "Vessel",
+    "Satellite",
+    "Camera",
+    "VisualAsset",
 }
 
 # RIOT-Lite: Common Shared Infrastructure that should not collapse the graph
@@ -175,6 +358,30 @@ def canonicalize_entity(ftm_schema: str, raw_value: str) -> Tuple[str, str, bool
     elif ftm_schema == "CryptoWallet":
         val = val.strip()
         display = val
+
+    elif ftm_schema == "Aircraft":
+        clean = re.sub(r"[^A-Za-z0-9]", "", val)
+        val = clean.lower()
+        display = f"ICAO24:{clean.upper()}"
+
+    elif ftm_schema == "Vessel":
+        digits = re.sub(r"[^\d]", "", val)
+        val = digits if digits else val.strip().lower()
+        display = f"MMSI:{digits}" if digits else val.upper()
+
+    elif ftm_schema == "Satellite":
+        clean = re.sub(r"[^A-Za-z0-9_-]", "", val)
+        val = clean.upper()
+        display = f"NORAD:{val}"
+
+    elif ftm_schema == "Camera":
+        val = val.strip()
+        display = f"CAM:{val}"
+
+    elif ftm_schema == "VisualAsset":
+        clean = re.sub(r"[^A-Fa-f0-9]", "", val).lower()
+        val = clean
+        display = f"IMG:{clean[:12]}"
 
     else:
         display = val

@@ -32,6 +32,13 @@ from backend.core.provenance_fusion import (
 from backend.core.security import OPSECGuard, circuit_breaker
 from backend.nlp.extractor import extractor
 
+from backend.collectors.aviation_adapter import aviation_adapter
+from backend.collectors.maritime_adapter import maritime_adapter
+from backend.collectors.satellite_adapter import satellite_adapter
+from backend.collectors.natural_events_adapter import natural_events_adapter
+from backend.collectors.camera_adapter import camera_adapter
+from backend.collectors.sanctions_loader import sanctions_loader
+
 logger = logging.getLogger("localosint.collectors")
 
 
@@ -784,6 +791,32 @@ class CollectorOrchestrator:
 
     # Alias for specification compatibility
     run_investigation_workflow = run_playbook
+
+    def run_all_geospatial_collectors(
+        self,
+        bbox: Optional[Tuple[float, float, float, float]] = None,
+        max_workers: int = 8,
+    ) -> Dict[str, Any]:
+        """Runs all live aviation, maritime, orbital, hazard, and camera collectors concurrently."""
+        results: Dict[str, Any] = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_layer = {
+                executor.submit(aviation_adapter.fetch_live_flights, bbox): "aviation",
+                executor.submit(maritime_adapter.fetch_live_vessels, bbox): "maritime",
+                executor.submit(satellite_adapter.fetch_live_satellites): "satellites",
+                executor.submit(natural_events_adapter.fetch_live_events): "natural_events",
+                executor.submit(camera_adapter.fetch_cameras, bbox): "cameras",
+                executor.submit(sanctions_loader.load_sanctions): "sanctions",
+            }
+            for future in concurrent.futures.as_completed(future_to_layer):
+                layer = future_to_layer[future]
+                try:
+                    res = future.result(timeout=10.0)
+                    results[layer] = len(res) if isinstance(res, list) else res
+                except Exception as e:
+                    logger.warning(f"Collector for {layer} failed or timed out: {e}")
+                    results[layer] = 0
+        return results
 
 
 # Singleton

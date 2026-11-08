@@ -6,20 +6,36 @@ M09: FastAPI REST/WebSocket Server & Multi-Format Export Engine.
 from __future__ import annotations
 
 import datetime
+import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from backend.ai.assistant import graphrag_assistant
 from backend.ai.search_rrf import hybrid_search_engine
 from backend.collectors.orchestrator import orchestrator
+from backend.collectors.sweep_delta import sweep_delta_engine
+from backend.collectors.aviation_adapter import aviation_adapter
+from backend.collectors.maritime_adapter import maritime_adapter
+from backend.collectors.satellite_adapter import satellite_adapter
+from backend.collectors.natural_events_adapter import natural_events_adapter
+from backend.collectors.camera_adapter import camera_adapter
+from backend.collectors.sanctions_loader import sanctions_loader
+from backend.alerts.alert_engine import alert_engine
+from backend.visual.media_forensics import media_forensics_engine
+from backend.visual.vision_engine import vision_engine
+from backend.visual.consent_guard import (
+    consent_guard,
+    ConsentViolationError,
+    QualityGateRejectionError,
+)
 from backend.core.config import FRONTEND_DIR, HOST, PORT
 from backend.core.database import db
 from backend.core.entity_resolution import entity_resolution_engine
@@ -95,14 +111,15 @@ def seed_demo_workspace_if_empty() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     seed_demo_workspace_if_empty()
+    sanctions_loader.load_sanctions()
     yield
     await orchestrator.close()
 
 
 app = FastAPI(
-    title="LocalOSINT v2.0 Analyst Workstation",
-    description="Production-grade local-first OSINT, Bitemporal Property Graph & Entity Resolution Platform",
-    version="2.0.0",
+    title="LocalOSINT v3.0 Global Intelligence Command Centre",
+    description="Next-Generation Global Intelligence Command Centre unifiying kinetic tracking, Crucix sweep-deltas, orbital propagation, and privacy-preserving visual intelligence.",
+    version="3.0.0",
     lifespan=lifespan,
 )
 
@@ -212,6 +229,7 @@ class ConnectorUpdateRequest(BaseModel):
 
 @app.get("/api/health")
 @app.get("/api/v2/health")
+@app.get("/api/v3/health")
 def get_health() -> Dict[str, Any]:
     conns = db.get_connectors()
     workspaces = db.list_workspaces()
@@ -219,12 +237,13 @@ def get_health() -> Dict[str, Any]:
 
     return {
         "status": "healthy",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "database_wal": True,
         "onnx_available": True,
         "workspace_count": len(workspaces),
         "connectors_total": len(conns),
         "connectors_ready": ready_count,
+        "sanctions_indexed": sanctions_loader.count(),
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 
@@ -909,6 +928,475 @@ def update_settings_post(body: Dict[str, Any] = Body(...)):
     for k, v in body.items():
         db.set_setting(k, str(v))
     return {"status": "UPDATED", "settings": db.get_settings()}
+
+
+# -----------------------------------------------------------------------------
+# V3.0 CRUCIX SWEEP-DELTA ENDPOINTS
+# -----------------------------------------------------------------------------
+
+class SweepRunRequest(BaseModel):
+    investigation_id: str = "default"
+    bbox: Optional[List[float]] = None  # [min_lon, min_lat, max_lon, max_lat]
+
+
+@app.post("/api/v1/sweeps/run")
+async def run_sweep_endpoint(req: SweepRunRequest = Body(default_factory=SweepRunRequest)):
+    bbox_tuple = tuple(req.bbox) if req.bbox and len(req.bbox) == 4 else None
+    result = sweep_delta_engine.run_sweep(
+        investigation_id=req.investigation_id,
+        bbox=bbox_tuple,
+    )
+    # Broadcast to SSE subscribers
+    await alert_engine.broadcast_event("SWEEP_COMPLETED", {
+        "sweep_id": result["sweep_id"],
+        "escalation_score": result["escalation_score"],
+        "deltas_count": len(result.get("deltas", [])),
+        "stats": result.get("stats", {}),
+    })
+    return result
+
+
+@app.get("/api/v1/sweeps/latest")
+def get_latest_sweep_endpoint():
+    latest = db.get_latest_sweep_run()
+    if not latest:
+        # Run an initial bootstrap sweep
+        return sweep_delta_engine.run_sweep()
+    sweep_id = latest["sweep_id"]
+    deltas = db.get_sweep_deltas(sweep_id)
+    return {
+        **latest,
+        "deltas": deltas,
+    }
+
+
+@app.get("/api/v1/sweeps/{sweep_id}/deltas")
+def get_sweep_deltas_endpoint(sweep_id: str, severity: Optional[str] = None):
+    return db.get_sweep_deltas(sweep_id, severity=severity)
+
+
+@app.get("/api/v1/sweeps/latest/briefing")
+def get_latest_sweep_briefing_endpoint():
+    latest = db.get_latest_sweep_run()
+    if not latest:
+        sweep_res = sweep_delta_engine.run_sweep()
+        sweep_id = sweep_res["sweep_id"]
+    else:
+        sweep_id = latest["sweep_id"]
+
+    briefing = graphrag_assistant.generate_sweep_briefing(sweep_id)
+    return briefing
+
+
+# -----------------------------------------------------------------------------
+# V3.0 GEOSPATIAL & KINETIC LAYERS ENDPOINTS
+# -----------------------------------------------------------------------------
+
+@app.get("/api/v1/geospatial/layers")
+def get_geospatial_layers(
+    layers: Optional[str] = Query(None, description="Comma-separated layer types, e.g. AIRCRAFT,VESSEL,SATELLITE,EARTHQUAKE,CAMERA"),
+    since: Optional[str] = Query(None),
+    limit: int = Query(2000, le=5000),
+):
+    layer_types = [l.strip().upper() for l in layers.split(",")] if layers else None
+    tracks = db.query_geo_tracks(layer_types=layer_types, since_iso=since, limit=limit)
+
+    # If tracks is empty, trigger a quick sweep to populate
+    if not tracks:
+        sweep_delta_engine.run_sweep()
+        tracks = db.query_geo_tracks(layer_types=layer_types, since_iso=since, limit=limit)
+
+    features = []
+    for t in tracks:
+        props = {
+            "track_id": t.get("track_id"),
+            "entity_id": t.get("entity_id"),
+            "layer_type": t.get("layer_type"),
+            "display_label": t.get("display_label"),
+            "callsign_or_name": t.get("callsign_or_name"),
+            "altitude_m": t.get("altitude_m"),
+            "heading": t.get("heading"),
+            "speed_kts": t.get("speed_kts"),
+            "telemetry_status": t.get("telemetry_status"),
+            "source_network": t.get("source_network"),
+            "is_military": t.get("is_military"),
+            "is_sanctioned": t.get("is_sanctioned"),
+            "risk_score": t.get("risk_score"),
+            "observed_at": t.get("observed_at"),
+            "metadata": t.get("metadata", {}),
+        }
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [t.get("lon"), t.get("lat")],
+            },
+            "properties": props,
+        })
+
+    # Add GPS interference zones if aircraft present
+    gps_zones = spatiotemporal_engine.compute_gps_interference_zones(tracks)
+    for z in gps_zones:
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": z["polygon"],
+            },
+            "properties": {
+                "layer_type": "GPS_JAMMING",
+                "display_label": f"GPS Interference Zone ({z['severity']})",
+                "severity": z["severity"],
+                "aircraft_count": z["aircraft_count"],
+                "avg_nacp": z["avg_nacp"],
+                "telemetry_status": "DERIVED_INFERENCE",
+            },
+        })
+
+    return {
+        "type": "FeatureCollection",
+        "features": features,
+        "count": len(features),
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/v1/geospatial/replay")
+def get_geospatial_replay(
+    timestamp_iso: str = Query(..., description="Target timestamp ISO"),
+    window_minutes: int = Query(30, ge=1, le=1440),
+):
+    try:
+        target_dt = datetime.datetime.fromisoformat(timestamp_iso.replace("Z", "+00:00"))
+    except Exception:
+        target_dt = datetime.datetime.now(datetime.timezone.utc)
+
+    start_dt = target_dt - datetime.timedelta(minutes=window_minutes)
+    end_dt = target_dt + datetime.timedelta(minutes=window_minutes)
+
+    tracks = db.query_geo_tracks(
+        since_iso=start_dt.isoformat(),
+        until_iso=end_dt.isoformat(),
+        limit=3000,
+    )
+    features = []
+    for t in tracks:
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [t.get("lon"), t.get("lat")],
+            },
+            "properties": {
+                "track_id": t.get("track_id"),
+                "entity_id": t.get("entity_id"),
+                "layer_type": t.get("layer_type"),
+                "display_label": t.get("display_label"),
+                "callsign_or_name": t.get("callsign_or_name"),
+                "telemetry_status": "HISTORICAL",
+                "speed_kts": t.get("speed_kts"),
+                "altitude_m": t.get("altitude_m"),
+                "heading": t.get("heading"),
+                "is_sanctioned": t.get("is_sanctioned"),
+                "is_military": t.get("is_military"),
+                "observed_at": t.get("observed_at"),
+                "metadata": t.get("metadata", {}),
+            },
+        })
+    return {
+        "type": "FeatureCollection",
+        "features": features,
+        "replay_timestamp": target_dt.isoformat(),
+        "window_minutes": window_minutes,
+        "count": len(features),
+    }
+
+
+@app.get("/api/v1/geospatial/satellites")
+def get_satellites_endpoint(timestamp_iso: Optional[str] = None):
+    target_dt = None
+    if timestamp_iso:
+        try:
+            target_dt = datetime.datetime.fromisoformat(timestamp_iso.replace("Z", "+00:00"))
+        except Exception:
+            pass
+    return satellite_adapter.fetch_live_satellites(target_time=target_dt)
+
+
+# -----------------------------------------------------------------------------
+# V3.0 GEOFENCES & REAL-TIME SSE ENDPOINTS
+# -----------------------------------------------------------------------------
+
+class GeofenceCreateRequest(BaseModel):
+    name: str
+    polygon_geojson: Any  # Dict or List or String
+    monitored_layers: Optional[List[str]] = None
+    min_severity: str = "MEDIUM"
+    notify_channels: Optional[List[str]] = None
+
+
+@app.post("/api/v1/geofences")
+def create_geofence_endpoint(req: GeofenceCreateRequest):
+    poly_str = json.dumps(req.polygon_geojson) if not isinstance(req.polygon_geojson, str) else req.polygon_geojson
+    gid = db.create_geofence(
+        name=req.name,
+        polygon_geojson=poly_str,
+        monitored_layers=req.monitored_layers,
+        min_severity=req.min_severity,
+        notify_channels=req.notify_channels,
+    )
+    return {"geofence_id": gid, "name": req.name, "status": "CREATED"}
+
+
+@app.get("/api/v1/geofences")
+def list_geofences_endpoint(active_only: bool = True):
+    return db.list_geofences(active_only=active_only)
+
+
+@app.delete("/api/v1/geofences/{geofence_id}")
+def delete_geofence_endpoint(geofence_id: str):
+    ok = db.delete_geofence(geofence_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Geofence not found")
+    return {"status": "DELETED", "geofence_id": geofence_id}
+
+
+@app.get("/api/v1/stream")
+async def sse_event_stream():
+    return StreamingResponse(
+        alert_engine.subscribe_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# -----------------------------------------------------------------------------
+# V3.0 PRIVACY-PRESERVING VISUAL INTELLIGENCE STUDIO ENDPOINTS
+# -----------------------------------------------------------------------------
+
+class VisualAnalyzeJsonRequest(BaseModel):
+    image_b64: str
+    filename: str = "uploaded_asset.jpg"
+    investigation_id: str = "default"
+    blur_bystanders: bool = True
+
+
+@app.post("/api/v1/visual/analyze")
+async def analyze_visual_asset(
+    request: Request,
+    blur_bystanders: bool = Query(True),
+):
+    import base64
+    content_type = request.headers.get("content-type", "")
+    img_bytes = b""
+    filename = "unknown.jpg"
+    inv_id = "default"
+    blur = blur_bystanders
+
+    if "application/json" in content_type:
+        body = await request.json()
+        b64_str = body.get("image_b64", "")
+        if "," in b64_str:
+            b64_str = b64_str.split(",", 1)[1]
+        img_bytes = base64.b64decode(b64_str)
+        filename = body.get("filename", "upload.jpg")
+        inv_id = body.get("investigation_id", "default")
+        if "blur_bystanders" in body:
+            blur = bool(body["blur_bystanders"])
+    else:
+        form = await request.form()
+        uploaded_file = form.get("file")
+        if uploaded_file and hasattr(uploaded_file, "read"):
+            img_bytes = await uploaded_file.read()
+            filename = getattr(uploaded_file, "filename", "upload.jpg") or "upload.jpg"
+        elif "image_b64" in form:
+            b64_str = form.get("image_b64", "")
+            if "," in b64_str:
+                b64_str = b64_str.split(",", 1)[1]
+            img_bytes = base64.b64decode(b64_str)
+            filename = form.get("filename", "upload.jpg")
+        if "blur_bystanders" in form:
+            blur = str(form["blur_bystanders"]).lower() in ("true", "1")
+        if "investigation_id" in form:
+            inv_id = str(form["investigation_id"])
+
+    if len(img_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty image data.")
+
+    # 1. Media Forensics (EXIF, GPS, C2PA, Hashes)
+    forensics = media_forensics_engine.parse_image_forensics(img_bytes, filename=filename)
+
+    # 2. Vision Engine (YuNet Face Detection, Sharpness Quality Gate, Mandatory Default Bystander Blurring)
+    vision_res = vision_engine.analyze_image(img_bytes, blur_bystanders=blur)
+
+    # 3. Near-duplicate search
+    phash_hex = forensics.get("phash_64", "")
+    similar_assets = db.find_similar_visual_assets(phash_hex, max_hamming=10) if phash_hex else []
+
+    # 4. Save to visual_assets table
+    asset_record = {
+        "investigation_id": inv_id,
+        "filename": filename,
+        "sha256_hash": forensics.get("sha256_hash", ""),
+        "phash_64": forensics.get("phash_64", ""),
+        "dhash_64": forensics.get("dhash_64", ""),
+        "ahash_64": forensics.get("ahash_64", ""),
+        "width": vision_res.get("dimensions", [0, 0])[0],
+        "height": vision_res.get("dimensions", [0, 0])[1],
+        "laplacian_sharpness": vision_res.get("laplacian_sharpness", 0.0),
+        "quality_grade": vision_res.get("quality_grade", "MODERATE"),
+        "faces_detected": vision_res.get("faces_detected", 0),
+        "bystanders_blurred": blur,
+        "exif_json": forensics.get("exif", {}),
+        "c2pa_json": forensics.get("c2pa", {}),
+        "lat": forensics.get("gps", {}).get("lat") if forensics.get("gps") else None,
+        "lon": forensics.get("gps", {}).get("lon") if forensics.get("gps") else None,
+        "redacted_image_b64": vision_res.get("processed_image_b64", ""),
+    }
+    asset_id = db.save_visual_asset(asset_record)
+
+    return {
+        "asset_id": asset_id,
+        "filename": filename,
+        "forensics": forensics,
+        "vision": {
+            "faces_detected": vision_res.get("faces_detected", 0),
+            "laplacian_sharpness": vision_res.get("laplacian_sharpness", 0.0),
+            "quality_grade": vision_res.get("quality_grade", "MODERATE"),
+            "quality_gate_passed": vision_res.get("quality_gate_passed", False),
+            "bystanders_blurred": blur,
+            "face_crops": vision_res.get("faces", []),
+        },
+        "similar_assets_count": len(similar_assets),
+        "similar_assets": similar_assets[:5],
+        "redacted_image_b64": vision_res.get("processed_image_b64", ""),
+    }
+
+
+class GalleryEnrollRequest(BaseModel):
+    image_b64: str
+    subject_name: str
+    consent_purpose: str
+    consent_attestation: bool
+    expiration_days: int = 90
+
+
+@app.post("/api/v1/visual/gallery/enroll")
+def enroll_consented_gallery_subject(req: GalleryEnrollRequest):
+    import base64
+    if not req.consent_attestation:
+        raise HTTPException(
+            status_code=403,
+            detail="Biometric enrollment rejected: Explicit consent attestation is legally mandatory.",
+        )
+    b64_str = req.image_b64.split(",", 1)[1] if "," in req.image_b64 else req.image_b64
+    img_bytes = base64.b64decode(b64_str)
+    try:
+        result = consent_guard.enroll_subject(
+            image_bytes=img_bytes,
+            subject_name=req.subject_name,
+            consent_purpose=req.consent_purpose,
+            consent_attestation=req.consent_attestation,
+            expiration_days=req.expiration_days,
+        )
+        return result
+    except ConsentViolationError as cve:
+        raise HTTPException(status_code=403, detail=str(cve))
+    except QualityGateRejectionError as qre:
+        raise HTTPException(status_code=422, detail=str(qre))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class VerifyProbeRequest(BaseModel):
+    probe_image_b64: str
+    consent_reason: str
+    bbox: Optional[List[int]] = None
+
+
+@app.post("/api/v1/visual/verify")
+def verify_visual_probe(req: VerifyProbeRequest):
+    import base64
+    if not req.consent_reason or not req.consent_reason.strip():
+        raise HTTPException(
+            status_code=403,
+            detail="Verification rejected: consent_reason is mandatory. Unconsented stranger matching is architecturally blocked.",
+        )
+    b64_str = req.probe_image_b64.split(",", 1)[1] if "," in req.probe_image_b64 else req.probe_image_b64
+    img_bytes = base64.b64decode(b64_str)
+    try:
+        result = consent_guard.verify_against_gallery(
+            probe_image_bytes=img_bytes,
+            consent_reason=req.consent_reason,
+            bbox=req.bbox,
+        )
+        return result
+    except ConsentViolationError as cve:
+        raise HTTPException(status_code=403, detail=str(cve))
+    except QualityGateRejectionError as qre:
+        raise HTTPException(status_code=422, detail=str(qre))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/v1/visual/assets")
+def list_visual_assets_endpoint(limit: int = 100):
+    return db.list_visual_assets(limit=limit)
+
+
+@app.get("/api/v1/visual/assets/{asset_id}")
+def get_visual_asset_endpoint(asset_id: str):
+    asset = db.get_visual_asset(asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Visual asset not found")
+    return asset
+
+
+@app.get("/api/v1/visual/gallery")
+def list_gallery_subjects_endpoint(non_expired_only: bool = True):
+    return db.list_consented_faces(non_expired_only=non_expired_only)
+
+
+@app.delete("/api/v1/visual/gallery/{gallery_id}")
+def revoke_gallery_subject_endpoint(gallery_id: str):
+    with db.get_connection() as conn:
+        cur = conn.execute("DELETE FROM consented_face_gallery WHERE gallery_id = ?;", (gallery_id,))
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Subject not found")
+    db.append_audit_log(action="CONSENT_GALLERY_REVOKE", details=f"Revoked consented gallery ID: {gallery_id}")
+    return {"status": "REVOKED", "gallery_id": gallery_id}
+
+
+# -----------------------------------------------------------------------------
+# V3.0 SANCTIONS & CAMERAS LOOKUP ENDPOINTS
+# -----------------------------------------------------------------------------
+
+@app.get("/api/v1/sanctions/lookup")
+def lookup_sanctions(
+    mmsi: Optional[str] = None,
+    imo: Optional[str] = None,
+    icao24: Optional[str] = None,
+    tail_number: Optional[str] = None,
+    name: Optional[str] = None,
+):
+    match = sanctions_loader.match_asset(
+        mmsi=mmsi,
+        imo=imo,
+        icao24=icao24,
+        tail_number=tail_number,
+        name=name,
+    )
+    return {"matched": match is not None, "record": match}
+
+
+@app.get("/api/v1/cameras")
+def get_cameras_endpoint():
+    cameras = camera_adapter.fetch_cameras()
+    return {"cameras": cameras, "count": len(cameras)}
 
 
 # -----------------------------------------------------------------------------

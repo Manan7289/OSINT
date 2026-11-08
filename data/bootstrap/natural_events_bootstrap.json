@@ -1,0 +1,54 @@
+[
+  {
+    "event_id": "eq_us7000m123",
+    "event_type": "EARTHQUAKE",
+    "title": "M 5.8 - 42 km ESE of Hualien City, Taiwan",
+    "magnitude": 5.8,
+    "depth_km": 12.4,
+    "lat": 23.8912,
+    "lon": 121.9421,
+    "severity": "HIGH",
+    "telemetry_status": "OFFLINE_BOOTSTRAP",
+    "source_url": "https://earthquake.usgs.gov/earthquakes/eventpage/us7000m123",
+    "observed_at": "2026-11-08T11:45:00Z"
+  },
+  {
+    "event_id": "eq_us7000m124",
+    "event_type": "EARTHQUAKE",
+    "title": "M 6.2 - Fox Islands, Aleutian Islands, Alaska",
+    "magnitude": 6.2,
+    "depth_km": 28.0,
+    "lat": 52.4120,
+    "lon": -169.8410,
+    "severity": "CRITICAL",
+    "telemetry_status": "OFFLINE_BOOTSTRAP",
+    "source_url": "https://earthquake.usgs.gov/earthquakes/eventpage/us7000m124",
+    "observed_at": "2026-11-08T10:30:00Z"
+  },
+  {
+    "event_id": "eonet_wildfire_6211",
+    "event_type": "WILDFIRE",
+    "title": "Wildfire - Los Padres National Forest, CA",
+    "magnitude": null,
+    "depth_km": 0.0,
+    "lat": 34.7812,
+    "lon": -119.8210,
+    "severity": "MEDIUM",
+    "telemetry_status": "OFFLINE_BOOTSTRAP",
+    "source_url": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_6211",
+    "observed_at": "2026-11-08T08:15:00Z"
+  },
+  {
+    "event_id": "noaa_alert_gulf_992",
+    "event_type": "WEATHER_ALERT",
+    "title": "Gale Warning - Gulf of Mexico Marine Zone",
+    "magnitude": null,
+    "depth_km": 0.0,
+    "lat": 27.5000,
+    "lon": -90.0000,
+    "severity": "MEDIUM",
+    "telemetry_status": "OFFLINE_BOOTSTRAP",
+    "source_url": "https://api.weather.gov/alerts/active",
+    "observed_at": "2026-11-08T12:00:00Z"
+  }
+]

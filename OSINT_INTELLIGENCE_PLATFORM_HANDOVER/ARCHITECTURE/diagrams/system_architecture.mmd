@@ -1,0 +1,25 @@
+graph TB
+    subgraph "18 Keyless & Optional OSINT Feeds"
+        F1["Aviation: OpenSky + ADSB.lol"]
+        F2["Maritime: Digitraffic AIS + AISStream"]
+        F3["Orbital: CelesTrak GP/TLE + SpaceDevs"]
+        F4["Hazards: USGS + NASA EONET + NOAA + Open-Meteo"]
+        F5["Cyber & Conflict: GDELT + CISA KEV + NVD + URLHaus + CRT.sh"]
+        F6["Cameras & Sanctions: DOT/OSM CCTV + OFAC SDN"]
+    end
+    subgraph "LocalOSINT v3.0 Backend (FastAPI + Python 3.11+)"
+        O["Parallel Orchestrator (8 Workers) + 15m Sweep Daemon"]
+        SD["Sweep-Delta Engine (NEW / ESCALATED / GEOFENCE / SANCTION)"]
+        ER["Blocked Fellegi-Sunter EM + OFAC Cross-Ref"]
+        SL["W3C PROV + Josang Subjective Logic Fusion"]
+        ST["SGP4 Propagator + HDBSCAN + Dark-Ship Detector"]
+        VI["Privacy-Preserving Visual Studio (YuNet + pHash + Auto-Blur)"]
+        DB[("20-Table SQLite WAL + FTS5 + R*Tree")]
+    end
+    subgraph "5-Zone Global Command Centre UI"
+        UI1["2D MapLibre GL + 3D CesiumJS/Globe.gl"]
+        UI2["4D Time Scrubber + Sweep-Delta HUD + Visual Studio"]
+    end
+    F1 & F2 & F3 & F4 & F5 & F6 --> O --> ER & SL & ST --> SD --> DB
+    VI --> DB
+    DB --> UI1 & UI2

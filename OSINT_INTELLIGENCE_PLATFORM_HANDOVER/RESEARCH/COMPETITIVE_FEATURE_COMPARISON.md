@@ -1,0 +1,26 @@
+# COMPETITIVE_FEATURE_COMPARISON.md — Feature, Technical & Gap Analysis Matrix
+
+## 1. Comprehensive Comparison: Argos Atlas vs. Crucix vs. God's Eye View vs. LocalOSINT v3.0
+
+| Capability / Dimension | Argos Atlas (`argosatlas.com`) | Crucix (`calesthio/Crucix`) | God's Eye View (`bilawalsidhu/gods-eye-view`) | Existing `Manan7289/OSINT` (v2.0) | **Redesigned LocalOSINT v3.0 (Target Vision)** |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Deployment & Privacy Model** | Cloud SaaS (Freemium / Paid `ARGOS PRO`) | Local Node.js (`server.mjs`), zero cloud | Local Vite/Browser app, zero cloud | Local Python FastAPI + SQLite WAL | **100% Local-First Python FastAPI + SQLite WAL + R*Tree (Zero mandatory cloud)** |
+| **Software License** | Proprietary Commercial | `AGPL-3.0` | `MIT` (media carve-out) | `MIT` / Open Source | **Clean-room `MIT`-compatible implementation** |
+| **2D / 3D Global Map Engine** | 2D/3D Vector & Satellite Crisis Map | 3D Globe widget + Jarvis HUD panels | **CesiumJS** + Esri keyless satellite + OSM fallback + optional Google 3D Tiles | Basic 2D SVG graticule map | **Unified 2D (`MapLibre GL`) + 3D Globe (`CesiumJS` / `Globe.gl`) with keyless Esri/OSM & optional 3D Tiles** |
+| **Live Aviation Tracking (ADS-B & Military)** | ~14,000 flights + 342 sanctioned aircraft flagged | Basic flight feed | `OpenSky Network` + `ADSB.lol` (`/v2/mil` military) | None | **Live `OpenSky` + `ADSB.lol` (`/v2/mil`) + Automatic OpenSanctions/OFAC Aircraft Cross-Referencing** |
+| **Live Maritime & Vessel Tracking (AIS)** | ~20,000 vessels + 1,559 sanctioned ships flagged | Basic maritime mentions | Simulated / static in forks | None | **Live `AISStream.io` WebSocket + `Digitraffic` REST AIS (Keyless) + Automatic Sanctioned Vessel (`MMSI`/`IMO`) Flagging** |
+| **Satellite & Orbital Tracking** | None | Constellation summary | **CelesTrak GP/TLE + `satellite.js` SGP4** real-time propagation | None | **CelesTrak GP/TLE + SGP4 (`sgp4`/`satellite.js`) real-time sub-satellite points, footprints & launch tracking (`The Space Devs LL2`)** |
+| **Natural Disasters, Fires & Weather** | Conflict & crisis layers | NASA FIRMS fires, radiation, weather | USGS Earthquakes | None | **USGS Earthquakes + NASA EONET/FIRMS Thermal Anomalies + NOAA NWS Severe Alerts + Open-Meteo** |
+| **Public Traffic & Weather Cameras** | 200,000+ cameras | None | TxDOT / Caltrans / OSM ALPR camera locations | None | **Documented Official DOT/Municipal Traffic & Weather Camera Aggregator (Caltrans, TxDOT, 511, Windy/OpenWebcam, OSM Camera Nodes)** |
+| **Scheduled Collection & Sweep-Delta Analysis** | Server-side proprietary updates | **15-min parallel sweeps + Sweep-Delta panel** (new, escalated, de-escalated) | Live polling per layer; no delta engine | Manual playbook runs only | **Configurable Scheduled Sweeps (5m–60m) + Persistent SQLite `sweep_deltas` Engine + WebSocket/SSE Live Push** |
+| **Geofence & Multi-Channel Alerting** | Geofence alerts (`ARGOS PRO` paid) | **Telegram & Discord two-way alerts** (`/brief`, `/sweep`) | None | None | **Polygon/Radius Geofence + Sweep-Delta Alert Rules dispatching to WebSocket UI, Telegram, Discord, and SMTP Email** |
+| **Visual Intelligence & Facial Analysis** | Photo/video geolocation on cards | None | None | Basic EXIF & PDF metadata | **Dedicated Visual Intelligence Studio: `YuNet` ONNX Face Detection, Automatic Bystander Blurring, Image Quality Scoring, 64-bit `pHash` Deduplication, Consented-Gallery `SFace` Verification, EXIF/C2PA** |
+| **Entity Resolution & Knowledge Graph** | None | Basic keyword/ticker correlation | None | **3-Pass Blocked Fellegi-Sunter EM + Leiden + IEF-PageRank** | **Retains & extends Fellegi-Sunter EM + Leiden Graph to link Vessels (`IMO`/`MMSI`), Aircraft (`ICAO24`), Companies (`LEI`), Domains, and Locations** |
+| **Evidence Provenance & Confidence Math** | "Verified by photo/video" badge | None | Source credits per layer | **W3C PROV + Dong Copying Discount + Jøsang Subjective Logic** | **Full W3C PROV + Subjective Logic $\omega=(b,d,u,a)$ + Explicit Freshness Badges (`LIVE`, `DELAYED`, `HISTORICAL`, `ESTIMATED`, `OFFLINE_CACHE`)** |
+
+---
+
+## 2. How LocalOSINT v3.0 Solves the Gaps of All Three Reference Platforms
+1. **Fixes God's Eye View's Lack of Persistence & Analytical Depth:** God's Eye View renders a stunning 3D globe in the browser, but when you refresh the tab, historical tracks, cross-source links, and anomalies vanish. LocalOSINT v3.0 backs the 2D/3D globe with our **SQLite WAL + R*Tree + Bitemporal Track & Claim database**, enabling historical playback, graph centrality, and court-defensible evidence custody.
+2. **Fixes Crucix's Ephemeral State & 267 MB Feed Timeouts:** Crucix computes deltas in memory and suffered from large sanctions feed timeouts. LocalOSINT v3.0 stores indexed snapshots in SQLite, uses HTTP `ETag`/`If-Modified-Since` headers + 3-state circuit breakers, and correlates sweep deltas spatially (R*Tree) and relationally (Leiden graph).
+3. **Brings Argos Atlas's Best Operational Features to a Free Local Workstation:** Implements **Automatic Sanctions Cross-Referencing on Live Ships/Aircraft**, **Region/Polygon Selection ("What is happening in this box right now?")**, and **Co-Located Camera & Infrastructure Pivoting** locally without a paid `ARGOS PRO` subscription.

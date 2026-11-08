@@ -3,559 +3,491 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LocalOSINT v2.0 — Intelligence & Link Analysis Workstation</title>
+  <title>LocalOSINT v3.0 — Global Intelligence Command Centre</title>
+  
+  <!-- CSS Dependencies -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <link rel="stylesheet" href="/assets/styles.css">
+
+  <!-- JS Core Dependencies -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="https://unpkg.com/globe.gl"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
-  <!-- Top Navigation & Status Bar -->
-  <header class="app-header">
-    <div class="header-left">
-      <div class="logo">
-        <span class="logo-shield">⬡</span>
-        <span class="logo-text">Local<strong>OSINT</strong> <small class="badge badge-primary">v2.0</small></span>
+
+  <!-- TOP COMMAND BAR -->
+  <header class="command-bar">
+    <div class="brand-section">
+      <div class="brand-logo">
+        <span>⬢</span>
+        <span>Local<strong>OSINT</strong> <small>v3.0</small></span>
       </div>
-      <div class="workspace-selector-wrap">
-        <label for="workspace-select">CASE:</label>
-        <select id="workspace-select" class="form-select"></select>
-        <button id="btn-new-workspace-modal" class="btn btn-sm btn-outline">+ Case</button>
+
+      <!-- 2D / 3D Canvas Switcher -->
+      <div class="view-toggle-group">
+        <button id="btn-mode-2d" class="view-toggle-btn active">2D MAP</button>
+        <button id="btn-mode-3d" class="view-toggle-btn">3D GLOBE</button>
+      </div>
+
+      <!-- Region Fly-to Presets Bar -->
+      <div class="region-presets">
+        <button class="preset-btn" data-preset="GLOBAL">Global</button>
+        <button class="preset-btn" data-preset="HORMUZ">Hormuz</button>
+        <button class="preset-btn" data-preset="TAIWAN">Taiwan</button>
+        <button class="preset-btn" data-preset="REDSEA">Red Sea</button>
+        <button class="preset-btn" data-preset="BLACKSEA">Black Sea</button>
+        <button class="preset-btn" data-preset="NORAM">NorAm</button>
+        <button class="preset-btn" data-preset="INDIA">India</button>
       </div>
     </div>
-    <div class="header-center">
-      <div class="global-search-wrap">
-        <input type="text" id="global-search-input" placeholder="Hybrid RRF Search across all entities, claims & evidence..." class="form-input">
-        <button id="btn-global-search" class="btn btn-primary btn-sm">Search</button>
+
+    <!-- Global Hybrid RRF Search Bar -->
+    <div class="search-section">
+      <div class="search-input-wrap">
+        <input type="text" id="global-search-input" placeholder="Hybrid RRF Search: Entity, Coordinates, MMSI, ICAO24, CVE...">
+        <span class="search-kbd">Ctrl+K</span>
       </div>
     </div>
-    <div class="header-right">
-      <span id="badge-opsec" class="badge badge-success">OPSEC: STANDARD</span>
-      <span id="badge-wal" class="badge badge-info">SQLite WAL</span>
-      <span id="badge-audit" class="badge badge-success">Audit: Intact</span>
-      <div class="export-dropdown">
-        <button class="btn btn-sm btn-outline" id="btn-export-dropdown">Export ▾</button>
-        <div class="dropdown-menu" id="export-menu">
-          <a href="#" data-export="json">Full Workspace (JSON)</a>
-          <a href="#" data-export="csv">Entities (CSV)</a>
-          <a href="#" data-export="stix">STIX 2.1 Bundle (JSON)</a>
-          <a href="#" data-export="ftm">FollowTheMoney (JSONL)</a>
-          <a href="#" data-export="prov">W3C PROV-JSON</a>
+
+    <!-- Action & Status Badges -->
+    <div class="actions-section">
+      <!-- Crucix Tension Score Gauge -->
+      <div id="escalation-gauge" class="escalation-badge low" title="Global Escalation Score (Crucix Sweep-Delta)">
+        Tension: <strong>--</strong>/100
+      </div>
+
+      <!-- Visual Studio Button -->
+      <button id="btn-open-visual-studio" class="action-btn">
+        <span>📷</span> Visual Studio
+      </button>
+
+      <!-- SitRep Briefing Button -->
+      <button id="btn-open-briefing" class="action-btn">
+        <span>🤖</span> SitRep Briefing
+      </button>
+
+      <!-- Case Selector -->
+      <select id="case-select" class="form-select" style="background:rgba(0,0,0,0.4); color:var(--text-main); border:1px solid var(--border-hud); border-radius:4px; padding:4px 8px; font-size:11px;">
+        <option value="default">Operation Sentinel</option>
+      </select>
+
+      <!-- Export Dropdown -->
+      <div style="position:relative;">
+        <button id="btn-export-dropdown" class="action-btn">Export ▾</button>
+        <div id="export-menu" class="hidden" style="position:absolute; right:0; top:32px; background:var(--bg-surface-elevated); border:1px solid var(--border-hud); border-radius:4px; min-width:160px; z-index:2000; box-shadow:var(--shadow-hud); padding:4px 0;">
+          <a href="#" data-export="json" style="display:block; padding:6px 12px; color:var(--text-main); text-decoration:none; font-size:11px;">Full Case (JSON)</a>
+          <a href="#" data-export="csv" style="display:block; padding:6px 12px; color:var(--text-main); text-decoration:none; font-size:11px;">Entities (CSV)</a>
+          <a href="#" data-export="stix" style="display:block; padding:6px 12px; color:var(--text-main); text-decoration:none; font-size:11px;">STIX 2.1 Bundle</a>
+          <a href="#" data-export="ftm" style="display:block; padding:6px 12px; color:var(--text-main); text-decoration:none; font-size:11px;">FollowTheMoney (JSONL)</a>
+          <a href="#" data-export="prov" style="display:block; padding:6px 12px; color:var(--text-main); text-decoration:none; font-size:11px;">W3C PROV-JSON</a>
         </div>
       </div>
     </div>
   </header>
 
-  <!-- Main Workstation Layout -->
-  <div class="app-container">
-    <!-- Left 11-View Navigation Sidebar -->
-    <nav class="app-sidebar">
-      <div class="sidebar-section-title">INTELLIGENCE SUITE</div>
-      <button class="nav-tab active" data-view="view-dashboard"><span class="icon">📊</span> 1. Dashboard</button>
-      <button class="nav-tab" data-view="view-collect"><span class="icon">⚡</span> 2. Collect & Triage <span id="sidebar-staged-badge" class="badge-pill">0</span></button>
-      <button class="nav-tab" data-view="view-entities"><span class="icon">🔍</span> 3. Entity Explorer</button>
-      <button class="nav-tab" data-view="view-graph"><span class="icon">🕸️</span> 4. Link Graph</button>
-      <button class="nav-tab" data-view="view-resolution"><span class="icon">⚖️</span> 5. Entity Resolution</button>
-      <button class="nav-tab" data-view="view-timeline"><span class="icon">⏳</span> 6. Timeline & Bursts</button>
-      <button class="nav-tab" data-view="view-geospatial"><span class="icon">🌍</span> 7. Geospatial & Clusters</button>
-      <button class="nav-tab" data-view="view-provenance"><span class="icon">📜</span> 8. W3C PROV Ledger</button>
-      <button class="nav-tab" data-view="view-ai-reports"><span class="icon">🤖</span> 9. GraphRAG & Reports</button>
-      <div class="sidebar-section-title">SYSTEM MONITOR</div>
-      <button class="nav-tab" data-view="view-tasks"><span class="icon">⏱️</span> 10. Tasks & Circuits</button>
-      <button class="nav-tab" data-view="view-settings"><span class="icon">⚙️</span> 11. Vault & Settings</button>
-    </nav>
+  <!-- ZONE 1: EARTH VIEWPORT CANVAS -->
+  <main id="map-viewport">
+    <div id="map-2d"></div>
+    <div id="globe-3d" class="hidden"></div>
+  </main>
 
-    <!-- Content Workspace -->
-    <main class="app-content">
-      <!-- VIEW 1: Dashboard -->
-      <section id="view-dashboard" class="view-panel active">
-        <div class="view-header">
-          <h2>Command Dashboard</h2>
-          <span class="text-muted" id="dashboard-case-title">Active Case Overview</span>
-        </div>
-        <!-- KPI Strip -->
-        <div class="kpi-grid">
-          <div class="kpi-card">
-            <div class="kpi-title">Active Entities</div>
-            <div class="kpi-val" id="kpi-entities">0</div>
-            <div class="kpi-sub">FollowTheMoney Nodes</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-title">Relationships / Claims</div>
-            <div class="kpi-val" id="kpi-claims">0</div>
-            <div class="kpi-sub">Bitemporal Edges</div>
-          </div>
-          <div class="kpi-card warning">
-            <div class="kpi-title">Staging Triage Buffer</div>
-            <div class="kpi-val" id="kpi-staged">0</div>
-            <div class="kpi-sub">Pending Graph Promotion</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-title">W3C PROV Artifacts</div>
-            <div class="kpi-val" id="kpi-evidence">0</div>
-            <div class="kpi-sub">Cryptographic Hashes</div>
-          </div>
-          <div class="kpi-card danger">
-            <div class="kpi-title">Contradiction Alerts</div>
-            <div class="kpi-val" id="kpi-conflicts">0</div>
-            <div class="kpi-sub">Disbelief (d ≥ 0.25)</div>
-          </div>
-        </div>
-        <!-- Split Tables -->
-        <div class="split-view">
-          <div class="card">
-            <div class="card-header">Top Centrality Hubs (IEF-PageRank)</div>
-            <div class="table-container">
-              <table class="table" id="table-dashboard-hubs">
-                <thead><tr><th>Label</th><th>Schema</th><th>PageRank</th><th>Degree</th></tr></thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-header">Latest Evidence Captures (W3C PROV)</div>
-            <div class="table-container">
-              <table class="table" id="table-dashboard-evidence">
-                <thead><tr><th>Source</th><th>Admiralty</th><th>Title</th><th>Observed</th></tr></thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </section>
+  <!-- ZONE 2: LEFT HUD (LAYER & SWEEP MANAGER) -->
+  <aside id="zone-2-hud" class="hud-panel">
+    <div class="panel-header">
+      <span>Intelligence Layers & Sweeps</span>
+      <button class="panel-collapse-btn" id="btn-collapse-zone-2">◀</button>
+    </div>
 
-      <!-- VIEW 2: Collect & Triage -->
-      <section id="view-collect" class="view-panel">
-        <div class="view-header">
-          <h2>OSINT Collection Playbook & Staging Triage Buffer</h2>
-        </div>
-        <div class="split-view">
-          <!-- Playbook Launcher -->
-          <div class="card">
-            <div class="card-header">1. Launch Modular OSINT Playbook</div>
-            <div class="card-body">
-              <div class="form-group">
-                <label>Target Observable / Query:</label>
-                <input type="text" id="playbook-target-input" class="form-input" placeholder="e.g. example.org, 185.220.101.34, AS13335, CVE-2024-3400">
-              </div>
-              <div class="form-row">
-                <div class="form-group flex-1">
-                  <label>Target Schema:</label>
-                  <select id="playbook-schema-select" class="form-select">
-                    <option value="AUTO">AUTO (Detect Automatically)</option>
-                    <option value="Domain">Domain</option>
-                    <option value="IPv4Address">IPv4Address</option>
-                    <option value="AutonomousSystem">AutonomousSystem</option>
-                    <option value="Vulnerability">Vulnerability</option>
-                    <option value="Company">Company</option>
-                    <option value="Email">Email</option>
-                  </select>
-                </div>
-                <div class="form-group flex-1">
-                  <label>Max Pivot Depth:</label>
-                  <select id="playbook-depth-select" class="form-select">
-                    <option value="0">0 (Direct Target Only)</option>
-                    <option value="1" selected>1 (1-Hop Neighbors)</option>
-                    <option value="2">2 (Recursive 2-Hop)</option>
-                  </select>
-                </div>
-              </div>
-              <div class="form-group">
-                <label>Select Connectors (18 Keyless + 6 Optional Keyed):</label>
-                <div class="connector-checkbox-grid" id="playbook-connectors-list"></div>
-              </div>
-              <button id="btn-run-playbook" class="btn btn-primary btn-block">Execute Collection Playbook</button>
-            </div>
-          </div>
+    <div class="panel-tabs">
+      <button class="panel-tab-btn active" data-tab="tab-layers">LAYERS</button>
+      <button class="panel-tab-btn" data-tab="tab-crucix">CRUCIX SWEEPS</button>
+    </div>
 
-          <!-- Staging Triage Buffer -->
-          <div class="card">
-            <div class="card-header">
-              <span>2. Staging Triage Buffer</span>
-              <button id="btn-promote-high-risk" class="btn btn-sm btn-outline">Promote Risk ≥ 50</button>
-            </div>
-            <div class="card-body">
-              <p class="text-sm text-muted">High-volume collection batches (>50 entities) are held here to protect graph canvas responsiveness.</p>
-              <div class="table-container max-h-350">
-                <table class="table" id="table-staging-buffer">
-                  <thead><tr><th>Select</th><th>Schema</th><th>Canonical Value</th><th>Risk</th><th>Action</th></tr></thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-              <button id="btn-promote-selected" class="btn btn-success btn-sm mt-2">Promote Selected to Visual Graph</button>
-            </div>
+    <!-- TAB 1: KINETIC & GEOSPATIAL LAYERS -->
+    <div id="tab-layers" class="tab-content tab-content-panel">
+      <div class="layer-list">
+        <!-- Commercial Aviation -->
+        <div class="layer-item">
+          <label class="layer-label">
+            <input type="checkbox" id="layer-toggle-aircraft" checked>
+            <span class="layer-dot" style="background:#38BDF8;"></span>
+            <span>Commercial Aviation</span>
+          </label>
+          <div class="layer-stats">
+            <span id="count-aircraft" class="font-mono">0</span>
+            <span class="badge-telemetry live">LIVE</span>
           </div>
         </div>
 
-        <!-- Document & Paste Forensics -->
-        <div class="card mt-3">
-          <div class="card-header">3. Document, Threat Advisory & EXIF Forensics</div>
-          <div class="card-body">
-            <div class="split-view">
-              <div class="flex-1">
-                <label>Paste Defanged Advisories / IOC Strings (hxxp, [.]):</label>
-                <textarea id="forensics-paste-text" class="form-textarea" rows="4" placeholder="Paste report containing defanged observables..."></textarea>
-                <button id="btn-extract-paste" class="btn btn-outline btn-sm mt-1">Refang & Extract Observables</button>
-              </div>
-              <div class="flex-1">
-                <label>Upload Document / Image (PDF, DOCX, JPEG/PNG EXIF):</label>
-                <input type="file" id="forensics-file-input" class="form-input">
-                <button id="btn-upload-file" class="btn btn-outline btn-sm mt-1">Analyze File Metadata & Forensics</button>
-              </div>
-            </div>
-            <div id="forensics-result-box" class="mt-2 code-box hidden"></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- VIEW 3: Entity Explorer -->
-      <section id="view-entities" class="view-panel">
-        <div class="view-header">
-          <h2>Entity Explorer & Hybrid RRF Search</h2>
-          <div class="filter-controls">
-            <select id="entity-schema-filter" class="form-select form-select-sm">
-              <option value="">All Schemas</option>
-              <option value="Domain">Domain</option>
-              <option value="Subdomain">Subdomain</option>
-              <option value="IPv4Address">IPv4Address</option>
-              <option value="AutonomousSystem">AutonomousSystem</option>
-              <option value="Company">Company</option>
-              <option value="Vulnerability">Vulnerability</option>
-              <option value="Email">Email</option>
-            </select>
-            <label class="checkbox-label"><input type="checkbox" id="entity-include-staged"> Include Staged</label>
-          </div>
-        </div>
-        <div class="card">
-          <div class="table-container">
-            <table class="table" id="table-entities">
-              <thead>
-                <tr>
-                  <th>Schema</th>
-                  <th>Display Label</th>
-                  <th>Admiralty</th>
-                  <th>Subjective Logic (b / d / u)</th>
-                  <th>Risk Score</th>
-                  <th>Leiden Comm</th>
-                  <th>Sources</th>
-                  <th>Last Seen</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- VIEW 4: Link Graph -->
-      <section id="view-graph" class="view-panel">
-        <div class="view-header">
-          <h2>Dual-Engine Relationship Graph</h2>
-          <div class="graph-toolbar">
-            <button id="btn-engine-toggle" class="btn btn-sm btn-outline">Engine: Canvas/WebGL</button>
-            <label class="time-travel-label">
-              As-Of (Time-Travel):
-              <input type="date" id="graph-as-of-date" class="form-input form-input-sm">
-            </label>
-            <label class="checkbox-label"><input type="checkbox" id="graph-hide-shared"> Dampen/Hide Shared Infra</label>
-            <button id="btn-reset-layout" class="btn btn-sm btn-outline">Reset Layout</button>
-            <button id="btn-zoom-in" class="btn btn-sm btn-outline">+</button>
-            <button id="btn-zoom-out" class="btn btn-sm btn-outline">-</button>
-          </div>
-        </div>
-        <div class="graph-layout-container">
-          <div class="canvas-wrap" id="graph-canvas-container">
-            <canvas id="graph-canvas"></canvas>
-            <svg id="graph-svg" class="hidden"></svg>
-          </div>
-          <!-- Right Inspector Panel -->
-          <div class="graph-inspector" id="graph-inspector">
-            <div class="inspector-header">Node Intelligence Inspector</div>
-            <div id="inspector-content" class="inspector-body">
-              <p class="text-muted text-sm">Click any node in the graph to inspect Subjective Logic metrics, provenance, and Adamic-Adar missing links.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- VIEW 5: Entity Resolution -->
-      <section id="view-resolution" class="view-panel">
-        <div class="view-header">
-          <h2>Fellegi-Sunter EM Entity Resolution & Waterfall Workbench</h2>
-          <button id="btn-refresh-er" class="btn btn-sm btn-primary">Run 3-Pass Blocking & EM</button>
-        </div>
-        <!-- Candidate Match Table -->
-        <div class="card mb-3">
-          <div class="card-header">Candidate Duplicate Entity Pairs (Ranked by Match Probability)</div>
-          <div class="table-container">
-            <table class="table" id="table-er-candidates">
-              <thead>
-                <tr>
-                  <th>Primary Entity (A)</th>
-                  <th>Duplicate Candidate (B)</th>
-                  <th>FS Log2 Weight</th>
-                  <th>Probability</th>
-                  <th>Classification</th>
-                  <th>Waterfall Factors</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+        <!-- Military Aviation -->
+        <div class="layer-item">
+          <label class="layer-label">
+            <input type="checkbox" id="layer-toggle-military" checked>
+            <span class="layer-dot" style="background:#F59E0B;"></span>
+            <span>Military Aircraft</span>
+          </label>
+          <div class="layer-stats">
+            <span id="count-military" class="font-mono">0</span>
+            <span class="badge-telemetry live">LIVE</span>
           </div>
         </div>
 
-        <!-- Reversible Merge Ledger -->
-        <div class="card">
-          <div class="card-header">100% Reversible Merge Ledger (Audit History)</div>
-          <div class="table-container">
-            <table class="table" id="table-er-ledger">
-              <thead>
-                <tr>
-                  <th>Merge ID</th>
-                  <th>Winner Entity</th>
-                  <th>Absorbed Entity</th>
-                  <th>Match Prob</th>
-                  <th>Status</th>
-                  <th>Merged At</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+        <!-- Maritime AIS -->
+        <div class="layer-item">
+          <label class="layer-label">
+            <input type="checkbox" id="layer-toggle-vessels" checked>
+            <span class="layer-dot" style="background:#10B981;"></span>
+            <span>Maritime AIS Vessels</span>
+          </label>
+          <div class="layer-stats">
+            <span id="count-vessels" class="font-mono">0</span>
+            <span class="badge-telemetry live">LIVE</span>
           </div>
-        </div>
-      </section>
-
-      <!-- VIEW 6: Timeline & Bursts -->
-      <section id="view-timeline" class="view-panel">
-        <div class="view-header">
-          <h2>Chronological Timeline & Kleinberg Burst Intelligence</h2>
-        </div>
-        <!-- Burst Alert Banner -->
-        <div id="timeline-burst-banner" class="banner banner-warning mb-2 hidden"></div>
-        <div class="card">
-          <div class="card-header">Activity Distribution & Burst Windows</div>
-          <div class="timeline-chart-bar" id="timeline-chart-container"></div>
-          <div class="table-container mt-2">
-            <table class="table" id="table-timeline-events">
-              <thead><tr><th>Date</th><th>Event Count</th><th>Burst Z-Score</th><th>Status</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- VIEW 7: Geospatial & Clusters -->
-      <section id="view-geospatial" class="view-panel">
-        <div class="view-header">
-          <h2>Geospatial Intelligence & Haversine HDBSCAN Clusters</h2>
-        </div>
-        <div class="split-view">
-          <div class="card flex-2">
-            <div class="card-header">Equirectangular World Cluster Map</div>
-            <div class="map-container" id="geo-map-container">
-              <canvas id="geo-map-canvas"></canvas>
-            </div>
-          </div>
-          <div class="card flex-1">
-            <div class="card-header">Geolocated Entities & Clusters</div>
-            <div class="table-container max-h-400">
-              <table class="table" id="table-geo-entities">
-                <thead><tr><th>Label</th><th>Coordinates</th><th>Cluster</th></tr></thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- VIEW 8: W3C PROV Ledger -->
-      <section id="view-provenance" class="view-panel">
-        <div class="view-header">
-          <h2>W3C PROV Lineage DAG & Subjective Logic Ledger</h2>
-        </div>
-        <div class="card">
-          <div class="table-container">
-            <table class="table" id="table-provenance">
-              <thead>
-                <tr>
-                  <th>Artifact ID</th>
-                  <th>Source Name</th>
-                  <th>Lineage Family</th>
-                  <th>Admiralty</th>
-                  <th>Title / Summary</th>
-                  <th>Payload SHA-256</th>
-                  <th>Observed At</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- VIEW 9: GraphRAG & Reports -->
-      <section id="view-ai-reports" class="view-panel">
-        <div class="view-header">
-          <h2>GraphRAG AI Assistant & Formal Report Builder</h2>
-        </div>
-        <div class="split-view">
-          <div class="card flex-1">
-            <div class="card-header">Query GraphRAG Assistant</div>
-            <div class="card-body">
-              <div class="form-group">
-                <input type="text" id="ai-query-input" class="form-input" placeholder="Ask intelligence question about active case (e.g. C2 infrastructure, vulnerabilities, ownership)...">
-              </div>
-              <button id="btn-ai-query" class="btn btn-primary btn-block">Generate Epistemically Stratified Briefing</button>
-              <div class="mt-3">
-                <h4>Generate Formal Report</h4>
-                <input type="text" id="report-title-input" class="form-input mb-1" placeholder="Report Title (e.g. Operation Sentinel Briefing)">
-                <button id="btn-generate-report" class="btn btn-success btn-block">Save Formal Intelligence Report</button>
-              </div>
-            </div>
-          </div>
-          <div class="card flex-2">
-            <div class="card-header">Intelligence Output & Citation Verification Audit</div>
-            <div class="card-body">
-              <div id="ai-response-box" class="markdown-preview">Ask a question or generate a report to view synthesized findings with verified evidence citations.</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- VIEW 10: Tasks & Circuits -->
-      <section id="view-tasks" class="view-panel">
-        <div class="view-header">
-          <h2>Task Execution & Circuit Breaker Monitor</h2>
-        </div>
-        <div class="card">
-          <div class="table-container">
-            <table class="table" id="table-tasks">
-              <thead>
-                <tr>
-                  <th>Task ID</th>
-                  <th>Connector</th>
-                  <th>Target</th>
-                  <th>Depth</th>
-                  <th>Status</th>
-                  <th>Entities</th>
-                  <th>Claims</th>
-                  <th>Staged</th>
-                  <th>Started At</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- VIEW 11: Vault & Settings -->
-      <section id="view-settings" class="view-panel">
-        <div class="view-header">
-          <h2>Fernet API Key Vault, OPSEC Guard & Audit Ledger</h2>
-        </div>
-        <!-- Audit Integrity Banner -->
-        <div class="banner banner-success mb-2" id="settings-audit-banner">
-          Audit Hash-Chain Status: Cryptographically Intact
-        </div>
-        <!-- Settings Form -->
-        <div class="card mb-3">
-          <div class="card-header">Runtime OPSEC & Analysis Policies</div>
-          <div class="card-body form-row">
-            <div class="form-group flex-1">
-              <label>OPSEC Mode:</label>
-              <select id="settings-opsec-select" class="form-select">
-                <option value="STANDARD">STANDARD (Allow All Network Calls)</option>
-                <option value="PASSIVE_ONLY">PASSIVE_ONLY (Block Direct Target Web Connections)</option>
-              </select>
-            </div>
-            <div class="form-group flex-1">
-              <label>Offline Mode:</label>
-              <select id="settings-offline-select" class="form-select">
-                <option value="false">false (Live Internet Enabled)</option>
-                <option value="true">true (Air-Gapped / Cache Only)</option>
-              </select>
-            </div>
-            <div class="form-group flex-1">
-              <label>AI Provider:</label>
-              <select id="settings-ai-select" class="form-select">
-                <option value="local_graphrag">local_graphrag (Deterministic CPU Compiler)</option>
-                <option value="ollama">ollama (Local Ollama Server)</option>
-              </select>
-            </div>
-          </div>
-          <button id="btn-save-settings" class="btn btn-primary btn-sm ml-3 mb-2">Save Runtime Policies</button>
         </div>
 
-        <!-- 24-Connector Vault -->
-        <div class="card">
-          <div class="card-header">24-Connector Credentials Vault (256-bit Fernet Encrypted At Rest)</div>
-          <div class="table-container">
-            <table class="table" id="table-connector-vault">
-              <thead>
-                <tr>
-                  <th>Connector</th>
-                  <th>Category</th>
-                  <th>Requires Key</th>
-                  <th>Current Key (Masked)</th>
-                  <th>Update API Key</th>
-                  <th>Rate Limit (RPM)</th>
-                  <th>Status</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+        <!-- OFAC SDN Sanctions -->
+        <div class="layer-item">
+          <label class="layer-label">
+            <input type="checkbox" id="layer-toggle-sanctions" checked disabled>
+            <span class="layer-dot" style="background:#EF4444;"></span>
+            <span>OFAC Sanctioned Assets</span>
+          </label>
+          <div class="layer-stats">
+            <span id="count-sanctions" class="font-mono">0</span>
+            <span class="badge-telemetry sanction">FLAGGED</span>
           </div>
         </div>
-      </section>
-    </main>
-  </div>
 
-  <!-- New Workspace Modal -->
-  <div class="modal-overlay hidden" id="modal-new-workspace">
-    <div class="modal-card">
+        <!-- Orbital Satellites (SGP4) -->
+        <div class="layer-item">
+          <label class="layer-label">
+            <input type="checkbox" id="layer-toggle-satellites" checked>
+            <span class="layer-dot" style="background:#A855F7;"></span>
+            <span>Satellites (SGP4)</span>
+          </label>
+          <div class="layer-stats">
+            <span id="count-satellites" class="font-mono">0</span>
+            <span class="badge-telemetry sgp4">SGP4</span>
+          </div>
+        </div>
+
+        <!-- Earthquakes & Hazards -->
+        <div class="layer-item">
+          <label class="layer-label">
+            <input type="checkbox" id="layer-toggle-quakes" checked>
+            <span class="layer-dot" style="background:#F97316;"></span>
+            <span>Quakes & Weather</span>
+          </label>
+          <div class="layer-stats">
+            <span id="count-quakes" class="font-mono">0</span>
+            <span class="badge-telemetry live">LIVE</span>
+          </div>
+        </div>
+
+        <!-- GPS Jamming & Interference -->
+        <div class="layer-item">
+          <label class="layer-label">
+            <input type="checkbox" id="layer-toggle-jamming" checked>
+            <span class="layer-dot" style="background:#EF4444;"></span>
+            <span>GPS Interference Zones</span>
+          </label>
+          <div class="layer-stats">
+            <span id="count-jamming" class="font-mono">0</span>
+            <span class="badge-telemetry bootstrap">DERIVED</span>
+          </div>
+        </div>
+
+        <!-- Public Traffic & Port Cameras -->
+        <div class="layer-item">
+          <label class="layer-label">
+            <input type="checkbox" id="layer-toggle-cameras" checked>
+            <span class="layer-dot" style="background:#22D3EE;"></span>
+            <span>Public Cameras</span>
+          </label>
+          <div class="layer-stats">
+            <span id="count-cameras" class="font-mono">0</span>
+            <span class="badge-telemetry live">CAM</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: CRUCIX SWEEP-DELTA STREAM -->
+    <div id="tab-crucix" class="tab-content tab-content-panel hidden">
+      <div class="sweep-header-box">
+        <div>
+          <strong style="color:var(--accent-cyan); font-size:11px;">CRUCIX PARALLEL SWEEPS</strong>
+          <div id="sweep-stats-summary" style="margin-top:4px;">Loading sweep status...</div>
+        </div>
+        <button id="btn-run-sweep" class="action-btn primary" style="font-size:10px; padding:4px 8px;">
+          ⚡ Run Sweep Now
+        </button>
+      </div>
+
+      <div class="sweep-stream" id="sweep-deltas-list">
+        <div style="color:var(--text-dim); text-align:center; padding:15px;">Initializing Crucix engine...</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ZONE 4: RIGHT HUD (ENTITY, GRAPH & PROVENANCE INSPECTOR) -->
+  <aside id="zone-4-hud" class="hud-panel">
+    <div class="panel-header">
+      <span>Entity & Graph Inspector</span>
+      <button class="panel-collapse-btn" id="btn-collapse-zone-4">▶</button>
+    </div>
+
+    <div class="inspector-content">
+      <!-- Entity Main Card -->
+      <div class="selected-entity-card">
+        <div class="entity-title-row">
+          <div class="entity-main-title" id="inspector-entity-title">Select an Asset on Map</div>
+        </div>
+        <div class="entity-badges-row" id="inspector-badges-row">
+          <span class="badge-telemetry bootstrap">STANDBY</span>
+        </div>
+        <div class="entity-props-grid" id="inspector-props-grid">
+          <div class="prop-cell"><span class="prop-label">STATUS</span><span class="prop-value">Awaiting Selection</span></div>
+          <div class="prop-cell"><span class="prop-label">NETWORK</span><span class="prop-value">ADSB / AIS</span></div>
+          <div class="prop-cell"><span class="prop-label">ALTITUDE</span><span class="prop-value">--</span></div>
+          <div class="prop-cell"><span class="prop-label">SPEED</span><span class="prop-value">--</span></div>
+          <div class="prop-cell"><span class="prop-label">HEADING</span><span class="prop-value">--</span></div>
+          <div class="prop-cell"><span class="prop-label">COORDINATES</span><span class="prop-value">--</span></div>
+        </div>
+      </div>
+
+      <!-- Sanctions Alert Box (Hidden unless sanctioned) -->
+      <div id="inspector-sanction-box" class="hidden"></div>
+
+      <!-- Camera Snapshot Action Box (Hidden unless camera) -->
+      <div id="inspector-camera-actions" class="hidden" style="background:var(--bg-card); padding:10px; border-radius:4px; border:1px solid var(--accent-teal);">
+        <strong style="color:var(--accent-teal);">Public Camera Live Pin</strong>
+        <p style="font-size:11px; color:var(--text-muted); margin:4px 0 8px 0;">Capture live snapshot to analyze in Visual Studio.</p>
+        <button id="btn-camera-snapshot" class="action-btn primary" style="width:100%; justify-content:center;">
+          📷 Analyze Frame in Visual Studio
+        </button>
+      </div>
+
+      <!-- Subjective Logic Opinion HUD -->
+      <div class="sl-opinion-box">
+        <div class="sl-title">
+          <span>SUBJECTIVE LOGIC OPINION</span>
+          <span style="font-size:10px; color:var(--accent-emerald);">Admiralty: A1</span>
+        </div>
+        <div class="sl-bars-wrap">
+          <div class="sl-bar-row">
+            <span class="sl-bar-label">Belief (b):</span>
+            <div class="sl-bar-track"><div id="sl-fill-belief" class="sl-bar-fill belief" style="width:85%;"></div></div>
+            <span id="sl-val-belief" style="width:30px; text-align:right;">0.85</span>
+          </div>
+          <div class="sl-bar-row">
+            <span class="sl-bar-label">Disbelief (d):</span>
+            <div class="sl-bar-track"><div id="sl-fill-disbelief" class="sl-bar-fill disbelief" style="width:5%;"></div></div>
+            <span id="sl-val-disbelief" style="width:30px; text-align:right;">0.05</span>
+          </div>
+          <div class="sl-bar-row">
+            <span class="sl-bar-label">Uncertainty (u):</span>
+            <div class="sl-bar-track"><div id="sl-fill-uncertainty" class="sl-bar-fill uncertainty" style="width:10%;"></div></div>
+            <span id="sl-val-uncertainty" style="width:30px; text-align:right;">0.10</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cytoscape Ego-Graph -->
+      <div class="graph-preview-box">
+        <div id="cy-container"></div>
+      </div>
+
+      <!-- Fellegi-Sunter Candidate Matches & Resolution -->
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:11px; color:var(--text-muted);">Fellegi-Sunter Link State:</span>
+        <button id="btn-unmerge-resolution" class="action-btn" style="font-size:10px; padding:3px 8px;">
+          ⚖ Unmerge Candidate
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ZONE 5: 4D TIME SCRUBBER & STATUS DOCK -->
+  <footer id="zone-5-dock">
+    <!-- Playback controls -->
+    <div class="scrubber-controls">
+      <button id="btn-timeline-play" class="action-btn" style="width:32px; height:32px; justify-content:center; padding:0;">
+        ▶
+      </button>
+      <select id="select-playback-speed" class="playback-speed-select">
+        <option value="1">1x</option>
+        <option value="10">10x</option>
+        <option value="60">60x</option>
+      </select>
+      <button id="btn-timeline-live" class="action-btn primary" style="font-size:10px; padding:4px 8px;">
+        ● LIVE
+      </button>
+    </div>
+
+    <!-- Range slider & time readout -->
+    <div class="timeline-track-wrap">
+      <div class="timeline-info-row">
+        <span>4D SPATIOTEMPORAL SCRUBBER</span>
+        <span id="timeline-time-display" style="color:var(--accent-cyan); font-weight:700;">2026-11-09 00:00:00 UTC</span>
+        <span id="timeline-status-badge" class="badge-telemetry live">LIVE TELEMETRY</span>
+      </div>
+      <input type="range" id="scrubber-slider" class="scrubber-slider" min="-1440" max="0" value="0">
+    </div>
+
+    <!-- Interactive Geofence Drawer & Coordinates -->
+    <div style="display:flex; align-items:center; gap:10px;">
+      <div style="font-size:10px; font-family:var(--font-mono); color:var(--text-muted); text-align:right;">
+        <div id="footer-coords">20.0000°N, 0.0000°E | ZOOM 3.0</div>
+        <div id="footer-cursor-coords">CURSOR: --, --</div>
+      </div>
+      <button id="btn-draw-geofence" class="action-btn" style="border-color:var(--accent-cyan);">
+        ⬟ Draw Geofence
+      </button>
+    </div>
+  </footer>
+
+  <!-- MODAL 1: PRIVACY-PRESERVING VISUAL INTELLIGENCE STUDIO -->
+  <div id="modal-visual-studio" class="modal-overlay hidden">
+    <div class="modal-window">
       <div class="modal-header">
-        <h3>Create Investigation Workspace Case</h3>
-        <button class="modal-close" id="btn-close-modal">✕</button>
+        <span>📷 Privacy-Preserving Visual Intelligence Studio (M11)</span>
+        <button class="modal-close" id="btn-close-visual-studio">✕</button>
       </div>
       <div class="modal-body">
-        <div class="form-group">
-          <label>Case Name:</label>
-          <input type="text" id="modal-ws-name" class="form-input" placeholder="e.g. Operation Chimera">
+        <!-- Bystander blur default notice -->
+        <div class="consent-warning-banner" style="background:rgba(56,189,248,0.1); border-color:var(--accent-cyan); color:#BAE6FD;">
+          🛡️ <strong>Ethical Architecture:</strong> Mandatory default bystander face redaction enabled. Local CPU-executable OpenCV YuNet detection. Unconsented biometric surveillance is strictly prohibited.
         </div>
-        <div class="form-group">
-          <label>Description:</label>
-          <textarea id="modal-ws-desc" class="form-textarea" rows="2" placeholder="Investigation scope and objectives..."></textarea>
+
+        <!-- Image Upload Dropzone -->
+        <div id="visual-dropzone" class="dropzone-box">
+          <input type="file" id="visual-file-input" accept="image/*" style="display:none;">
+          <div style="font-size:24px; margin-bottom:8px;">📁</div>
+          <strong>Drop an intelligence photograph here, or click to browse</strong>
+          <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">Supports JPEG, PNG, WebP with EXIF, GPS & C2PA manifest extraction</div>
         </div>
-        <div class="form-row">
-          <div class="form-group flex-1">
-            <label>TLP Marking:</label>
-            <select id="modal-ws-tlp" class="form-select">
-              <option value="TLP:CLEAR">TLP:CLEAR</option>
-              <option value="TLP:GREEN">TLP:GREEN</option>
-              <option value="TLP:AMBER" selected>TLP:AMBER</option>
-              <option value="TLP:RED">TLP:RED</option>
-            </select>
+
+        <div id="visual-analysis-status" style="font-size:11px; color:var(--accent-cyan); margin-bottom:8px;"></div>
+
+        <!-- Analysis Results Container -->
+        <div id="visual-preview-container" class="hidden">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" id="toggle-bystander-blur" checked>
+              <strong>Blur Bystanders (Default: ON)</strong>
+            </label>
+            <div>
+              <span id="badge-quality-grade" class="badge-telemetry live">MODERATE</span>
+              <span style="font-size:11px; margin-left:8px; color:var(--text-muted);">Laplacian: <strong id="metric-sharpness">0.0</strong> | Faces: <strong id="metric-faces-count">0</strong></span>
+            </div>
           </div>
-          <div class="form-group flex-1">
-            <label>OPSEC Mode:</label>
-            <select id="modal-ws-opsec" class="form-select">
-              <option value="STANDARD" selected>STANDARD</option>
-              <option value="PASSIVE_ONLY">PASSIVE_ONLY</option>
-            </select>
+
+          <div class="visual-preview-grid">
+            <!-- Redacted Image Preview -->
+            <div class="visual-img-container">
+              <img id="visual-processed-img" alt="Redacted Intelligence Preview" src="">
+            </div>
+
+            <!-- Forensics & EXIF metadata -->
+            <div>
+              <table class="forensics-table">
+                <tbody id="forensics-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Consent-Gated Biometric Verification Accordion -->
+          <div style="background:rgba(0,0,0,0.4); border:1px solid var(--border-hud); border-radius:4px; padding:12px; margin-top:12px;">
+            <strong style="color:var(--accent-cyan);">Consent-Gated Biometric Verification & Enrollment</strong>
+            <p style="font-size:11px; color:var(--text-muted); margin:4px 0 10px 0;">1:N SFace cosine matching strictly requires documented legal consent and Laplacian quality gate passage ($\sigma_L^2 \ge 40.0$).</p>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+              <!-- Verification Form -->
+              <div style="border-right:1px solid var(--border-hud-subtle); padding-right:12px;">
+                <div style="font-weight:700; font-size:11px; margin-bottom:6px;">1:N Gallery Verification</div>
+                <input type="text" id="verify-consent-reason" placeholder="Documented Case ID / Investigation Purpose" class="form-input" style="width:100%; margin-bottom:6px; background:#000; border:1px solid var(--border-hud); color:#fff; padding:6px; font-size:11px;">
+                <label style="display:flex; align-items:flex-start; gap:6px; font-size:10px; color:#FCA5A5; margin-bottom:8px;">
+                  <input type="checkbox" id="verify-consent-checkbox">
+                  <span>I attest documented legal consent/authorization exists for this biometric inquiry.</span>
+                </label>
+                <button id="btn-verify-probe" class="action-btn primary" style="width:100%; justify-content:center;">
+                  ⚖ Verify Against Consented Gallery
+                </button>
+                <div id="verify-result-output" style="margin-top:8px; font-size:11px;"></div>
+              </div>
+
+              <!-- Enrollment Form -->
+              <div>
+                <div style="font-weight:700; font-size:11px; margin-bottom:6px;">Enroll Reference Subject</div>
+                <input type="text" id="enroll-subject-name" placeholder="Authorized Subject Name" class="form-input" style="width:100%; margin-bottom:6px; background:#000; border:1px solid var(--border-hud); color:#fff; padding:6px; font-size:11px;">
+                <input type="text" id="enroll-consent-purpose" placeholder="Legal Basis / Authorized Investigation" class="form-input" style="width:100%; margin-bottom:6px; background:#000; border:1px solid var(--border-hud); color:#fff; padding:6px; font-size:11px;">
+                <label style="display:flex; align-items:flex-start; gap:6px; font-size:10px; color:#FCA5A5; margin-bottom:8px;">
+                  <input type="checkbox" id="enroll-consent-checkbox">
+                  <span>I attest consent has been obtained from the subject for 90-day storage.</span>
+                </label>
+                <button id="btn-enroll-gallery" class="action-btn" style="width:100%; justify-content:center;">
+                  + Enroll in Consented Gallery
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-outline" id="btn-cancel-modal">Cancel</button>
-        <button class="btn btn-primary" id="btn-create-workspace-confirm">Create Case</button>
       </div>
     </div>
   </div>
 
-  <!-- Toast Notification Container -->
+  <!-- MODAL 2: SITREP BRIEFING DRAWER -->
+  <div id="modal-briefing" class="modal-overlay hidden">
+    <div class="modal-window">
+      <div class="modal-header">
+        <span>🤖 Crucix AI Intelligence Briefing (Grounded SitRep)</span>
+        <button class="modal-close" id="btn-close-briefing">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="briefing-markdown-content" style="line-height:1.6; font-size:13px; color:var(--text-main);"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 3: SEARCH RESULTS -->
+  <div id="modal-search-results" class="modal-overlay hidden">
+    <div class="modal-window" style="width:650px;">
+      <div class="modal-header">
+        <span id="search-query-display">Search Results</span>
+        <button class="modal-close">✕</button>
+      </div>
+      <div class="modal-body" id="search-results-list" style="max-height:400px;"></div>
+    </div>
+  </div>
+
+  <!-- MODAL 4: SAVE GEOFENCE -->
+  <div id="modal-save-geofence" class="modal-overlay hidden">
+    <div class="modal-window" style="width:400px;">
+      <div class="modal-header">
+        <span>Save Monitored Geofence</span>
+        <button class="modal-close" id="btn-cancel-geofence">✕</button>
+      </div>
+      <div class="modal-body">
+        <label style="display:block; margin-bottom:4px; font-size:11px;">Geofence Name:</label>
+        <input type="text" id="geofence-name-input" class="form-input" style="width:100%; background:#000; border:1px solid var(--border-hud); color:#fff; padding:6px; font-size:12px; margin-bottom:12px;" value="Strait of Hormuz Watch Zone">
+        <button id="btn-save-geofence" class="action-btn primary" style="width:100%; justify-content:center;">
+          ✓ Confirm & Activate Watch Zone
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATIONS -->
   <div id="toast-container" class="toast-container"></div>
 
+  <!-- SCRIPT BOOTSTRAP -->
+  <script src="/assets/globe_map.js"></script>
+  <script src="/assets/timeline_4d.js"></script>
+  <script src="/assets/sweep_delta_hud.js"></script>
+  <script src="/assets/visual_studio.js"></script>
   <script src="/assets/app.js"></script>
 </body>
 </html>

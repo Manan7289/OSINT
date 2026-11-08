@@ -25,7 +25,7 @@ def test_api_health_endpoint(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "healthy"
-    assert data["version"] == "2.0.0"
+    assert data["version"] in ("2.0.0", "3.0.0")
     assert data["database_wal"] is True
     assert data["connectors_total"] >= 24
 

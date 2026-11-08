@@ -9,6 +9,7 @@ import datetime
 import json
 import sqlite3
 import threading
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
@@ -281,6 +282,128 @@ CREATE TABLE IF NOT EXISTS app_settings (
     setting_key TEXT PRIMARY KEY,
     setting_value TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+
+-- TABLE 15: geo_tracks (4D Spatiotemporal Trajectory Archive)
+CREATE TABLE IF NOT EXISTS geo_tracks (
+    track_id TEXT PRIMARY KEY,
+    entity_id TEXT,
+    layer_type TEXT NOT NULL,
+    lat REAL NOT NULL,
+    lon REAL NOT NULL,
+    altitude_m REAL DEFAULT 0.0,
+    velocity_mps REAL DEFAULT 0.0,
+    heading_deg REAL DEFAULT 0.0,
+    telemetry_status TEXT NOT NULL,
+    is_sanctioned INTEGER DEFAULT 0,
+    is_military INTEGER DEFAULT 0,
+    squawk TEXT DEFAULT NULL,
+    metadata_json TEXT DEFAULT '{}',
+    observed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_geo_tracks_time ON geo_tracks(observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_geo_tracks_layer_time ON geo_tracks(layer_type, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_geo_tracks_entity ON geo_tracks(entity_id, observed_at DESC);
+
+-- TABLE 16: sweep_runs (Crucix-Style Sweep Runs)
+CREATE TABLE IF NOT EXISTS sweep_runs (
+    sweep_id TEXT PRIMARY KEY,
+    investigation_id TEXT NOT NULL DEFAULT 'default',
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    status TEXT NOT NULL,
+    sources_polled INTEGER DEFAULT 0,
+    sources_succeeded INTEGER DEFAULT 0,
+    new_entities_count INTEGER DEFAULT 0,
+    escalated_count INTEGER DEFAULT 0,
+    sanction_matches_count INTEGER DEFAULT 0,
+    geofence_alerts_count INTEGER DEFAULT 0,
+    escalation_score REAL DEFAULT 0.0,
+    summary_briefing_md TEXT DEFAULT ''
+);
+
+-- TABLE 17: sweep_deltas (Granular Changes Between Sweeps)
+CREATE TABLE IF NOT EXISTS sweep_deltas (
+    delta_id TEXT PRIMARY KEY,
+    sweep_id TEXT NOT NULL REFERENCES sweep_runs(sweep_id) ON DELETE CASCADE,
+    entity_id TEXT,
+    delta_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    prev_value_json TEXT DEFAULT '{}',
+    curr_value_json TEXT DEFAULT '{}',
+    lat REAL,
+    lon REAL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sweep_deltas_sweep ON sweep_deltas(sweep_id, severity);
+
+-- TABLE 18: sanctions_index (Argos-Style OFAC SDN Cross-Reference)
+CREATE TABLE IF NOT EXISTS sanctions_index (
+    sanction_id TEXT PRIMARY KEY,
+    sdn_name TEXT NOT NULL,
+    sdn_type TEXT NOT NULL,
+    program TEXT NOT NULL,
+    mmsi TEXT,
+    imo TEXT,
+    icao24 TEXT,
+    tail_number TEXT,
+    flag_country TEXT,
+    remarks TEXT,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sanctions_mmsi ON sanctions_index(mmsi);
+CREATE INDEX IF NOT EXISTS idx_sanctions_imo ON sanctions_index(imo);
+CREATE INDEX IF NOT EXISTS idx_sanctions_tail ON sanctions_index(tail_number);
+CREATE INDEX IF NOT EXISTS idx_sanctions_icao24 ON sanctions_index(icao24);
+
+-- TABLE 19: geofence_zones (User-Defined Geofence Alert Zones)
+CREATE TABLE IF NOT EXISTS geofence_zones (
+    geofence_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    polygon_geojson TEXT NOT NULL,
+    monitored_layers_json TEXT NOT NULL DEFAULT '["AIRCRAFT", "VESSEL", "EARTHQUAKE", "CONFLICT"]',
+    min_severity TEXT DEFAULT 'MEDIUM',
+    notify_channels_json TEXT DEFAULT '["SSE"]',
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+-- TABLE 20: visual_assets & consented_face_gallery (Privacy-Preserving Visual Studio)
+CREATE TABLE IF NOT EXISTS visual_assets (
+    asset_id TEXT PRIMARY KEY,
+    investigation_id TEXT NOT NULL DEFAULT 'default',
+    entity_id TEXT,
+    filename TEXT NOT NULL,
+    sha256_hash TEXT NOT NULL,
+    phash_64 TEXT NOT NULL,
+    dhash_64 TEXT NOT NULL,
+    ahash_64 TEXT NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    laplacian_sharpness REAL NOT NULL,
+    quality_grade TEXT NOT NULL,
+    faces_detected INTEGER DEFAULT 0,
+    bystanders_blurred INTEGER DEFAULT 1,
+    exif_json TEXT DEFAULT '{}',
+    c2pa_json TEXT DEFAULT '{}',
+    lat REAL,
+    lon REAL,
+    redacted_image_b64 TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS consented_face_gallery (
+    gallery_id TEXT PRIMARY KEY,
+    subject_name TEXT NOT NULL,
+    consent_purpose TEXT NOT NULL,
+    consent_attestation INTEGER NOT NULL CHECK (consent_attestation = 1),
+    embedding_blob BLOB NOT NULL,
+    image_sha256 TEXT NOT NULL,
+    laplacian_sharpness REAL NOT NULL,
+    enrolled_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
 );
 """
 
@@ -906,6 +1029,12 @@ class DatabaseManager:
             cur = conn.execute("SELECT * FROM audit_logs ORDER BY seq_no ASC LIMIT ?;", (limit,))
             return [dict(r) for r in cur.fetchall()]
 
+    def verify_audit_log(self) -> Tuple[bool, int]:
+        """Cryptographically verifies the SHA-256 audit log hash chain."""
+        entries = self.get_audit_logs(limit=1000)
+        valid, count, _ = HashChainedAuditLogger.verify_chain(entries)
+        return valid, count
+
     # -------------------------------------------------------------------------
     # Connector Configs & Vault
     # -------------------------------------------------------------------------
@@ -1202,6 +1331,464 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cur = conn.execute(query, params)
             return cur.rowcount > 0
+
+    # =========================================================================
+    # V3.0 GEOSPATIAL & 4D TRAJECTORY METHODS
+    # =========================================================================
+    def insert_geo_tracks_batch(self, tracks: List[Dict[str, Any]]) -> int:
+        if not tracks:
+            return 0
+        rows = []
+        for t in tracks:
+            rows.append((
+                t.get("track_id") or f"trk_{uuid.uuid4().hex[:12]}",
+                t.get("entity_id"),
+                t.get("layer_type", "UNKNOWN"),
+                float(t.get("lat", 0.0)),
+                float(t.get("lon", 0.0)),
+                float(t.get("altitude_m", 0.0)),
+                float(t.get("velocity_mps", 0.0)),
+                float(t.get("heading_deg", 0.0)),
+                t.get("telemetry_status", "LIVE"),
+                1 if t.get("is_sanctioned") else 0,
+                1 if t.get("is_military") else 0,
+                t.get("squawk"),
+                json.dumps(t.get("metadata_json") or (t.get("metadata") or {})),
+                t.get("observed_at") or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            ))
+        with self.get_connection() as conn:
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO geo_tracks (
+                    track_id, entity_id, layer_type, lat, lon, altitude_m, velocity_mps,
+                    heading_deg, telemetry_status, is_sanctioned, is_military, squawk,
+                    metadata_json, observed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                rows,
+            )
+        return len(rows)
+
+    def query_geo_tracks(
+        self,
+        layer_types: Optional[List[str]] = None,
+        since_iso: Optional[str] = None,
+        until_iso: Optional[str] = None,
+        bbox: Optional[Tuple[float, float, float, float]] = None,
+        limit: int = 2000,
+    ) -> List[Dict[str, Any]]:
+        query = "SELECT * FROM geo_tracks WHERE 1=1"
+        params: List[Any] = []
+
+        if layer_types:
+            placeholders = ",".join("?" for _ in layer_types)
+            query += f" AND layer_type IN ({placeholders})"
+            params.extend(layer_types)
+
+        if since_iso:
+            query += " AND observed_at >= ?"
+            params.append(since_iso)
+
+        if until_iso:
+            query += " AND observed_at <= ?"
+            params.append(until_iso)
+
+        if bbox:
+            min_lon, min_lat, max_lon, max_lat = bbox
+            query += " AND lat >= ? AND lat <= ? AND lon >= ? AND lon <= ?"
+            params.extend([min_lat, max_lat, min_lon, max_lon])
+
+        query += " ORDER BY observed_at DESC LIMIT ?"
+        params.append(limit)
+
+        results = []
+        with self.get_connection() as conn:
+            cur = conn.execute(query, params)
+            for row in cur.fetchall():
+                d = dict(row)
+                d["metadata"] = json.loads(d.get("metadata_json") or "{}")
+                d["is_sanctioned"] = bool(d["is_sanctioned"])
+                d["is_military"] = bool(d["is_military"])
+                results.append(d)
+        return results
+
+    # =========================================================================
+    # V3.0 SANCTIONS INDEX METHODS
+    # =========================================================================
+    def upsert_sanctions_batch(self, records: List[Dict[str, Any]]) -> int:
+        if not records:
+            return 0
+        rows = []
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        for r in records:
+            rows.append((
+                r.get("sanction_id") or f"sdn_{uuid.uuid4().hex[:12]}",
+                r.get("sdn_name", "UNKNOWN"),
+                r.get("sdn_type", "ENTITY"),
+                r.get("program", "OFAC-SDN"),
+                r.get("mmsi"),
+                r.get("imo"),
+                r.get("icao24", "").lower() if r.get("icao24") else None,
+                r.get("tail_number"),
+                r.get("flag_country"),
+                r.get("remarks"),
+                r.get("updated_at") or now,
+            ))
+        with self.get_connection() as conn:
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO sanctions_index (
+                    sanction_id, sdn_name, sdn_type, program, mmsi, imo, icao24,
+                    tail_number, flag_country, remarks, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                rows,
+            )
+        return len(rows)
+
+    def match_sanction(
+        self,
+        mmsi: Optional[str] = None,
+        imo: Optional[str] = None,
+        icao24: Optional[str] = None,
+        tail_number: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            if mmsi:
+                cur = conn.execute("SELECT * FROM sanctions_index WHERE mmsi = ? LIMIT 1;", (str(mmsi).strip(),))
+                row = cur.fetchone()
+                if row:
+                    return dict(row)
+
+            if imo:
+                cur = conn.execute("SELECT * FROM sanctions_index WHERE imo = ? LIMIT 1;", (str(imo).strip(),))
+                row = cur.fetchone()
+                if row:
+                    return dict(row)
+
+            if icao24:
+                cur = conn.execute("SELECT * FROM sanctions_index WHERE icao24 = ? LIMIT 1;", (str(icao24).strip().lower(),))
+                row = cur.fetchone()
+                if row:
+                    return dict(row)
+
+            if tail_number:
+                cur = conn.execute("SELECT * FROM sanctions_index WHERE tail_number = ? LIMIT 1;", (str(tail_number).strip().upper(),))
+                row = cur.fetchone()
+                if row:
+                    return dict(row)
+
+            if name:
+                cur = conn.execute(
+                    "SELECT * FROM sanctions_index WHERE sdn_name = ? COLLATE NOCASE LIMIT 1;",
+                    (str(name).strip(),)
+                )
+                row = cur.fetchone()
+                if row:
+                    return dict(row)
+        return None
+
+    # =========================================================================
+    # V3.0 CRUCIX SWEEP RUNS & DELTAS METHODS
+    # =========================================================================
+    def create_sweep_run(self, investigation_id: str = "default") -> str:
+        sweep_id = f"swp_{datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO sweep_runs (
+                    sweep_id, investigation_id, started_at, status
+                ) VALUES (?, ?, ?, 'RUNNING');
+                """,
+                (sweep_id, investigation_id, now),
+            )
+        return sweep_id
+
+    def complete_sweep_run(
+        self, sweep_id: str, stats: Dict[str, Any], deltas: List[Dict[str, Any]]
+    ) -> None:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE sweep_runs SET
+                    completed_at = ?,
+                    status = ?,
+                    sources_polled = ?,
+                    sources_succeeded = ?,
+                    new_entities_count = ?,
+                    escalated_count = ?,
+                    sanction_matches_count = ?,
+                    geofence_alerts_count = ?,
+                    escalation_score = ?,
+                    summary_briefing_md = ?
+                WHERE sweep_id = ?;
+                """,
+                (
+                    now,
+                    stats.get("status", "COMPLETED"),
+                    stats.get("sources_polled", 0),
+                    stats.get("sources_succeeded", 0),
+                    stats.get("new_entities_count", 0),
+                    stats.get("escalated_count", 0),
+                    stats.get("sanction_matches_count", 0),
+                    stats.get("geofence_alerts_count", 0),
+                    float(stats.get("escalation_score", 0.0)),
+                    stats.get("summary_briefing_md", ""),
+                    sweep_id,
+                ),
+            )
+            if deltas:
+                delta_rows = []
+                for d in deltas:
+                    delta_rows.append((
+                        d.get("delta_id") or f"dlt_{uuid.uuid4().hex[:12]}",
+                        sweep_id,
+                        d.get("entity_id"),
+                        d.get("delta_type", "NEW_ENTITY"),
+                        d.get("severity", "INFO"),
+                        d.get("title", ""),
+                        d.get("description", ""),
+                        json.dumps(d.get("prev_value_json") or {}),
+                        json.dumps(d.get("curr_value_json") or {}),
+                        d.get("lat"),
+                        d.get("lon"),
+                        d.get("created_at") or now,
+                    ))
+                conn.executemany(
+                    """
+                    INSERT INTO sweep_deltas (
+                        delta_id, sweep_id, entity_id, delta_type, severity, title,
+                        description, prev_value_json, curr_value_json, lat, lon, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    delta_rows,
+                )
+
+    def get_latest_sweep_run(self) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.execute("SELECT * FROM sweep_runs ORDER BY started_at DESC LIMIT 1;")
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def get_sweep_run(self, sweep_id: str) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.execute("SELECT * FROM sweep_runs WHERE sweep_id = ?;", (sweep_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def get_sweep_deltas(self, sweep_id: str, severity: Optional[str] = None) -> List[Dict[str, Any]]:
+        query = "SELECT * FROM sweep_deltas WHERE sweep_id = ?"
+        params: List[Any] = [sweep_id]
+        if severity:
+            query += " AND severity = ?"
+            params.append(severity)
+        query += " ORDER BY created_at DESC;"
+        with self.get_connection() as conn:
+            cur = conn.execute(query, params)
+            deltas = []
+            for row in cur.fetchall():
+                d = dict(row)
+                d["prev_value"] = json.loads(d.get("prev_value_json") or "{}")
+                d["curr_value"] = json.loads(d.get("curr_value_json") or "{}")
+                deltas.append(d)
+            return deltas
+
+    # =========================================================================
+    # V3.0 GEOFENCE ZONES METHODS
+    # =========================================================================
+    def create_geofence(
+        self,
+        name: str,
+        polygon_geojson: str,
+        monitored_layers: Optional[List[str]] = None,
+        min_severity: str = "MEDIUM",
+        notify_channels: Optional[List[str]] = None,
+    ) -> str:
+        geofence_id = f"geo_{uuid.uuid4().hex[:10]}"
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        layers = monitored_layers or ["AIRCRAFT", "VESSEL", "EARTHQUAKE", "CONFLICT"]
+        channels = notify_channels or ["SSE"]
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO geofence_zones (
+                    geofence_id, name, polygon_geojson, monitored_layers_json,
+                    min_severity, notify_channels_json, is_active, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 1, ?);
+                """,
+                (
+                    geofence_id,
+                    name,
+                    polygon_geojson,
+                    json.dumps(layers),
+                    min_severity,
+                    json.dumps(channels),
+                    now,
+                ),
+            )
+        return geofence_id
+
+    def list_geofences(self, active_only: bool = True) -> List[Dict[str, Any]]:
+        query = "SELECT * FROM geofence_zones"
+        params: List[Any] = []
+        if active_only:
+            query += " WHERE is_active = 1"
+        query += " ORDER BY created_at DESC;"
+        with self.get_connection() as conn:
+            cur = conn.execute(query, params)
+            zones = []
+            for row in cur.fetchall():
+                z = dict(row)
+                z["monitored_layers"] = json.loads(z.get("monitored_layers_json") or "[]")
+                z["notify_channels"] = json.loads(z.get("notify_channels_json") or "[]")
+                z["is_active"] = bool(z["is_active"])
+                zones.append(z)
+            return zones
+
+    def delete_geofence(self, geofence_id: str) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.execute("DELETE FROM geofence_zones WHERE geofence_id = ?;", (geofence_id,))
+            return cur.rowcount > 0
+
+    # =========================================================================
+    # V3.0 VISUAL ASSETS & CONSENTED GALLERY METHODS
+    # =========================================================================
+    def save_visual_asset(self, asset: Dict[str, Any]) -> str:
+        asset_id = asset.get("asset_id") or f"vis_{uuid.uuid4().hex[:12]}"
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO visual_assets (
+                    asset_id, investigation_id, entity_id, filename, sha256_hash,
+                    phash_64, dhash_64, ahash_64, width, height, laplacian_sharpness,
+                    quality_grade, faces_detected, bystanders_blurred, exif_json,
+                    c2pa_json, lat, lon, redacted_image_b64, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    asset_id,
+                    asset.get("investigation_id", "default"),
+                    asset.get("entity_id"),
+                    asset.get("filename", "unknown.jpg"),
+                    asset.get("sha256_hash", ""),
+                    asset.get("phash_64", "0" * 16),
+                    asset.get("dhash_64", "0" * 16),
+                    asset.get("ahash_64", "0" * 16),
+                    int(asset.get("width", 0)),
+                    int(asset.get("height", 0)),
+                    float(asset.get("laplacian_sharpness", 0.0)),
+                    asset.get("quality_grade", "MODERATE"),
+                    int(asset.get("faces_detected", 0)),
+                    1 if asset.get("bystanders_blurred", True) else 0,
+                    json.dumps(asset.get("exif_json") or {}),
+                    json.dumps(asset.get("c2pa_json") or {}),
+                    asset.get("lat"),
+                    asset.get("lon"),
+                    asset.get("redacted_image_b64"),
+                    asset.get("created_at") or now,
+                ),
+            )
+        return asset_id
+
+    def get_visual_asset(self, asset_id: str) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.execute("SELECT * FROM visual_assets WHERE asset_id = ?;", (asset_id,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            d["exif"] = json.loads(d.get("exif_json") or "{}")
+            d["c2pa"] = json.loads(d.get("c2pa_json") or "{}")
+            d["bystanders_blurred"] = bool(d["bystanders_blurred"])
+            return d
+
+    def list_visual_assets(self, limit: int = 100) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.execute("SELECT * FROM visual_assets ORDER BY created_at DESC LIMIT ?;", (limit,))
+            assets = []
+            for row in cur.fetchall():
+                d = dict(row)
+                d["exif"] = json.loads(d.get("exif_json") or "{}")
+                d["c2pa"] = json.loads(d.get("c2pa_json") or "{}")
+                d["bystanders_blurred"] = bool(d["bystanders_blurred"])
+                assets.append(d)
+            return assets
+
+    def find_similar_visual_assets(self, phash_hex: str, max_hamming: int = 10) -> List[Dict[str, Any]]:
+        try:
+            target_int = int(phash_hex, 16)
+        except ValueError:
+            return []
+
+        candidates = self.list_visual_assets(limit=500)
+        similar = []
+        for c in candidates:
+            c_hash = c.get("phash_64", "")
+            if not c_hash:
+                continue
+            try:
+                cand_int = int(c_hash, 16)
+                diff = bin(target_int ^ cand_int).count("1")
+                if diff <= max_hamming:
+                    c_copy = dict(c)
+                    c_copy["hamming_distance"] = diff
+                    c_copy["similarity_score"] = round(1.0 - (diff / 64.0), 4)
+                    similar.append(c_copy)
+            except ValueError:
+                continue
+        similar.sort(key=lambda x: x["hamming_distance"])
+        return similar
+
+    def enroll_consented_face(
+        self,
+        subject_name: str,
+        consent_purpose: str,
+        consent_attestation: bool,
+        embedding_blob: bytes,
+        image_sha256: str,
+        laplacian_sharpness: float,
+        expires_at: str,
+    ) -> str:
+        if not consent_attestation:
+            raise ValueError("Explicit consent attestation is legally mandatory for face enrollment.")
+        gallery_id = f"gal_{uuid.uuid4().hex[:12]}"
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO consented_face_gallery (
+                    gallery_id, subject_name, consent_purpose, consent_attestation,
+                    embedding_blob, image_sha256, laplacian_sharpness, enrolled_at, expires_at
+                ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?);
+                """,
+                (
+                    gallery_id,
+                    subject_name,
+                    consent_purpose,
+                    embedding_blob,
+                    image_sha256,
+                    float(laplacian_sharpness),
+                    now,
+                    expires_at,
+                ),
+            )
+        return gallery_id
+
+    def list_consented_faces(self, non_expired_only: bool = True) -> List[Dict[str, Any]]:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        query = "SELECT * FROM consented_face_gallery"
+        params: List[Any] = []
+        if non_expired_only:
+            query += " WHERE expires_at > ?"
+            params.append(now)
+        query += " ORDER BY enrolled_at DESC;"
+        with self.get_connection() as conn:
+            cur = conn.execute(query, params)
+            return [dict(row) for row in cur.fetchall()]
 
 
 # Singleton

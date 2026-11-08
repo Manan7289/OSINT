@@ -1,0 +1,68 @@
+[
+  {
+    "camera_id": "cam_caltrans_d7_101_hollywood",
+    "operator": "Caltrans District 7",
+    "road_or_area": "US-101 at Hollywood Blvd, Los Angeles",
+    "lat": 34.1016,
+    "lon": -118.3268,
+    "heading_deg": 180.0,
+    "snapshot_url": "https://cwwp2.dot.ca.gov/data/d7/cctv/image/cctv101.jpg",
+    "stream_url": null,
+    "telemetry_status": "LIVE"
+  },
+  {
+    "camera_id": "cam_caltrans_d4_bay_bridge",
+    "operator": "Caltrans District 4",
+    "road_or_area": "I-80 Bay Bridge Toll Plaza, San Francisco",
+    "lat": 37.8183,
+    "lon": -122.3467,
+    "heading_deg": 270.0,
+    "snapshot_url": "https://cwwp2.dot.ca.gov/data/d4/cctv/image/cctv80.jpg",
+    "stream_url": null,
+    "telemetry_status": "LIVE"
+  },
+  {
+    "camera_id": "cam_txdot_houston_ship_channel",
+    "operator": "TxDOT Houston",
+    "road_or_area": "Houston Ship Channel Bridge / I-610",
+    "lat": 29.7341,
+    "lon": -95.2632,
+    "heading_deg": 90.0,
+    "snapshot_url": "https://traffic.houstontranstar.org/cctv/transtar/houston_ship_channel.jpg",
+    "stream_url": null,
+    "telemetry_status": "LIVE"
+  },
+  {
+    "camera_id": "cam_port_rotterdam_cctv",
+    "operator": "Port of Rotterdam",
+    "road_or_area": "Europoort Gateway Berth 4",
+    "lat": 51.9542,
+    "lon": 4.1205,
+    "heading_deg": 315.0,
+    "snapshot_url": "https://images.webcams.travel/med/12345.jpg",
+    "stream_url": null,
+    "telemetry_status": "OFFLINE_BOOTSTRAP"
+  },
+  {
+    "camera_id": "cam_singapore_pasir_panjang",
+    "operator": "Maritime & Port Authority Singapore",
+    "road_or_area": "Pasir Panjang Terminal West",
+    "lat": 1.2789,
+    "lon": 103.7842,
+    "heading_deg": 210.0,
+    "snapshot_url": "https://images.webcams.travel/med/12346.jpg",
+    "stream_url": null,
+    "telemetry_status": "OFFLINE_BOOTSTRAP"
+  },
+  {
+    "camera_id": "cam_gibraltar_strait_cctv",
+    "operator": "Gibraltar Port Authority",
+    "road_or_area": "Europa Point / Strait of Gibraltar",
+    "lat": 36.1098,
+    "lon": -5.3467,
+    "heading_deg": 180.0,
+    "snapshot_url": "https://images.webcams.travel/med/12347.jpg",
+    "stream_url": null,
+    "telemetry_status": "OFFLINE_BOOTSTRAP"
+  }
+]

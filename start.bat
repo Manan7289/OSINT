@@ -1,9 +1,9 @@
 @echo off
 setlocal
-title LocalOSINT v2.0 - Workstation Server
+title LocalOSINT v3.0 - Global Intelligence Command Centre
 
 echo ===============================================================================
-echo Starting LocalOSINT v2.0 Intelligence Workstation Server
+echo Starting LocalOSINT v3.0 Global Intelligence Command Centre
 echo Target: http://127.0.0.1:8000
 echo ===============================================================================
 echo.

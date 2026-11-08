@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-title LocalOSINT v2.0 - Automated Windows 11 Installer
+title LocalOSINT v3.0 - Automated Windows 11 Installer
 
 echo ===============================================================================
-echo LocalOSINT v2.0 -- Intelligence & Link Analysis Workstation Installer
+echo LocalOSINT v3.0 -- Global Intelligence Command Centre Installer
 echo Target OS: Windows 11 (64-bit) ^| CPU-Only Architecture
 echo ===============================================================================
 echo.
@@ -53,7 +53,7 @@ if not exist ".env" (
     if exist ".env.example" (
         copy .env.example .env >nul
     ) else (
-        echo # LocalOSINT v2.0 Runtime Environment Configuration > .env
+        echo # LocalOSINT v3.0 Runtime Environment Configuration > .env
         echo HOST=127.0.0.1 >> .env
         echo PORT=8000 >> .env
         echo OPSEC_MODE=STANDARD >> .env
@@ -65,12 +65,12 @@ if not exist ".env" (
 )
 
 :: 6. Initialize SQLite Database & Seeding
-echo [INFO] Initializing SQLite WAL schema and demonstration workspace ...
-python -c "from backend.core.database import db; db.init_db(); from backend.main import seed_demo_workspace_if_empty; seed_demo_workspace_if_empty(); print('[OK] Database schema initialized and demonstration case verified.')"
+echo [INFO] Initializing SQLite WAL schema, sanctions index and demonstration case ...
+python -c "from backend.core.database import db; db.init_db(); from backend.collectors.sanctions_loader import sanctions_loader; sanctions_loader.load_sanctions(); from backend.main import seed_demo_workspace_if_empty; seed_demo_workspace_if_empty(); print('[OK] Database schema initialized and demonstration case verified.')"
 
 echo.
 echo ===============================================================================
-echo [SUCCESS] LocalOSINT v2.0 installation completed successfully!
+echo [SUCCESS] LocalOSINT v3.0 installation completed successfully!
 echo To start the platform workstation: double-click start.bat
 echo Web UI will be accessible at: http://127.0.0.1:8000
 echo ===============================================================================

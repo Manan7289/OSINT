@@ -1,0 +1,50 @@
+[
+  {
+    "norad_id": "25544",
+    "sat_name": "ISS (ZARYA)",
+    "orbit_regime": "LEO",
+    "line1": "1 25544U 98067A   24140.48625902  .00018519  00000+0  33467-3 0  9997",
+    "line2": "2 25544  51.6416 112.5762 0004739 105.1584 255.0315 15.49845763454236",
+    "telemetry_status": "ORBITAL_PROPAGATED"
+  },
+  {
+    "norad_id": "48274",
+    "sat_name": "TIANGONG (CSS)",
+    "orbit_regime": "LEO",
+    "line1": "1 48274U 21035A   24140.54287841  .00030571  00000+0  34512-3 0  9994",
+    "line2": "2 48274  41.4746 348.6189 0005231 161.8492 198.2831 15.60211832174312",
+    "telemetry_status": "ORBITAL_PROPAGATED"
+  },
+  {
+    "norad_id": "20580",
+    "sat_name": "HST (HUBBLE)",
+    "orbit_regime": "LEO",
+    "line1": "1 20580U 90037B   24140.41916383  .00000854  00000+0  42104-4 0  9999",
+    "line2": "2 20580  28.4691 198.8105 0002847 312.1843  47.8524 15.09241512863951",
+    "telemetry_status": "ORBITAL_PROPAGATED"
+  },
+  {
+    "norad_id": "43013",
+    "sat_name": "NOAA-20 (JPSS-1)",
+    "orbit_regime": "SSO",
+    "line1": "1 43013U 17073A   24140.48512140  .00000067  00000+0  38829-4 0  9990",
+    "line2": "2 43013  98.7182 214.5120 0001429  92.1245 268.0124 14.19532810336214",
+    "telemetry_status": "ORBITAL_PROPAGATED"
+  },
+  {
+    "norad_id": "40697",
+    "sat_name": "SENTINEL-2A",
+    "orbit_regime": "SSO",
+    "line1": "1 40697U 15028A   24140.50192842  .00000142  00000+0  63412-4 0  9998",
+    "line2": "2 40697  98.5671 213.9142 0001154  84.5212 275.6120 14.30821046462198",
+    "telemetry_status": "ORBITAL_PROPAGATED"
+  },
+  {
+    "norad_id": "51445",
+    "sat_name": "USA-326 (NRO)",
+    "orbit_regime": "LEO-RECON",
+    "line1": "1 51445U 22009A   24140.52184910  .00001240  00000+0  54128-4 0  9991",
+    "line2": "2 51445  97.4120 185.2410 0012410 240.1250 119.8210 15.21401201124150",
+    "telemetry_status": "ORBITAL_PROPAGATED"
+  }
+]
