@@ -10,7 +10,7 @@ Update this tracker immediately after completing and testing each phase:
 | **04** | `M06` | W3C PROV Lineage DAG, Dong Copying Discount & Jøsang Subjective Logic Belief Fusion | `[x] COMPLETED` | `test_m06_provenance_fusion.py` (5/5 passed) | `phase-4-m06` |
 | **05** | `M04` | Hybrid NLP Extractor (Defang/Regex + ONNX INT8 GLiNER + DGA Entropy) & PDF/DOCX/EXIF Forensics | `[x] COMPLETED` | `test_m04_nlp_forensics.py` (7/7 passed) | `phase-5-m04` |
 | **06** | `M03` | `AsyncEventBus`, Staging Triage Buffer (`is_staged`) & 24 Modular OSINT Connectors | `[x] COMPLETED` | `test_m03_collectors.py` (5/5 passed) | `phase-6-m03` |
-| **07** | `M05` | 3-Pass Blocked Fellegi-Sunter EM Entity Resolution, Waterfall Charts & Reversible Merge Ledger | `[ ] PENDING` | `test_m05_entity_resolution.py` | — |
+| **07** | `M05` | 3-Pass Blocked Fellegi-Sunter EM Entity Resolution, Waterfall Charts & Reversible Merge Ledger | `[x] COMPLETED` | `test_m05_entity_resolution.py` (4/4 passed) | `phase-7-m05` |
 | **08** | `M07` | `rustworkx`/SciPy Graph Engine (Leiden, IEF-PageRank, Adamic-Adar) + HDBSCAN & Kleinberg Burst | `[ ] PENDING` | `test_m07_graph_spatiotemporal.py` | — |
 | **09** | `M08` | Hybrid RRF Search (FTS5 BM25 + INT8 Vectors) & GraphRAG Assistant with Citation Validator | `[ ] PENDING` | `test_m08_search_and_ai.py` | — |
 | **10** | `M09` | FastAPI REST/WebSocket Server & 5-Format Export Engine (`JSON`, `CSV`, `STIX 2.1`, `FtM`, `PROV`) | `[ ] PENDING` | `test_m09_api_and_exports.py` | — |
