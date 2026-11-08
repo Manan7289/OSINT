@@ -1,0 +1,23 @@
+# TESTING_AND_ACCEPTANCE_CRITERIA.md — Comprehensive QA & Verification Strategy
+
+## 1. Testing Philosophy & Strict Rules for Antigravity
+1. **Execute Every Test Before Claiming Completion:** Never mark a phase complete in `IMPLEMENTATION_TRACKER.md` without executing its test file and observing `0 failed`.
+2. **Real Logic Verification (No Fake Pass Stubs):** Tests must assert actual mathematical outputs (e.g., Subjective Logic $b+d+u=1.0$, Fellegi-Sunter EM weight ordering, SQLite WAL persistence across closed connections, SHA-256 hash-chain tamper detection).
+
+---
+
+## 2. Feature-by-Feature Verification Matrix
+
+| Feature / Module | Test File | Expected Input | Expected Result | Failure Scenario Tested | Acceptance Criterion |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **M01: Fernet Vault & Key Masking** | `test_m01_security.py` | Plaintext key `"vt_key_1234567890"` | Decrypts to exact plaintext; masks as `"vt_k**********7890"` | Corrupted ciphertext returns `""` without raising unhandled exception | 100% round-trip & zero plaintext exposure in `list_connectors()` |
+| **M01: Rate Limiter & Circuit Breaker** | `test_m01_security.py` | 3 consecutive failures on `crtsh_ct` | Circuit transitions `CLOSED -> OPEN` | Subsequent call raises/returns `CIRCUIT_OPEN` immediately | Prevents upstream flood & recovers after cooldown |
+| **M01: Hash-Chained Audit Log** | `test_m01_security.py` | 5 sequential audit actions | `verify_audit_chain()` returns `valid=True` | Direct SQL modification of row #3's `details` causes `verify_audit_chain()` to return `valid=False, broken_seq=3` | Detects any post-hoc tampering |
+| **M02: Bitemporal SQLite WAL & FtM Schema** | `test_m02_database.py` | Domain `"Example.COM."` and `"example.com"` | Deduplicates to 1 canonical entity (`example.com`); preserves bitemporal claims | Querying `as_of_time="2020-01-01"` excludes claims with `valid_from="2024-01-01"` | ACID persistence across restarts + accurate time-slice filtering |
+| **M03: AsyncEventBus, Staging & 24 Connectors** | `test_m03_collectors.py` | Playbook on `"example.org"` | Emits DNS, RDAP, CT, BGP, CVE entities with 64-char SHA-256 provenance | Batch of 80 subdomains with `staging_threshold=50` puts 30 into `is_staged=1`; missing Shodan Pro key returns `SKIPPED` | Zero crashes; staging buffer prevents graph overload |
+| **M04: Defang NLP & File Forensics** | `test_m04_nlp_forensics.py` | `"Contact admin[@]evil[.]org at hxxps://185.220.101[.]34/login"` | Extracts `EMAIL: admin@evil.org`, `IPV4: 185.220.101.34`, `URL: https://185.220.101.34/login` | High-entropy random subdomain `x9k2m8q1p4z7.com` flagged with DGA entropy $H > 3.8$ | 100% recall on defanged test corpus |
+| **M05: 3-Pass Blocking & Fellegi-Sunter EM** | `test_m05_entity_resolution.py` | 500 entities including `"ShadowNet Security Inc"` & `"ShadowNet Security LLC"` | Blocking evaluates $<3\%$ of $N(N-1)/2$ pairs; EM scores match probability $>0.85$ with waterfall factors | Calling `unmerge(merge_id)` restores `"ShadowNet Security LLC"` and its original claims | $>30\times$ pair reduction + 100% reversible merge/unmerge |
+| **M06: W3C PROV & Subjective Logic Fusion** | `test_m06_provenance_fusion.py` | Claim A with 4 evidence items in same `upstream_lineage_family` vs. Claim B with 2 independent `A1` families | Claim B achieves higher `sl_belief` than Claim A and reaches `CORROBORATED_FACT` | Adding contradicting `A1` evidence increases `sl_disbelief >= 0.25` and sets `UNVERIFIED_CLAIM` | Echo-chamber immunity proven mathematically |
+| **M07: Leiden, IEF-PageRank & Spatiotemporal** | `test_m07_graph_spatiotemporal.py` | Graph where 10 domains link to shared CDN `AS13335` (`is_shared_infra=1`) | `AS13335` edge weights dampened by $0.15\times$; Leiden communities stay connected; HDBSCAN clusters nearby coords | Empty graph or single geo point returns valid empty/singleton structure | Super-node dampening & connected communities verified |
+| **M08: Hybrid RRF Search & GraphRAG Validator** | `test_m08_search_and_ai.py` | Query `"CVE-2024-3400"` and semantic query `"exposed network services"` | RRF returns top ranked matches in `<25ms`; GraphRAG output separates Facts vs. Inferences | Injecting fake citation `[ev_nonexistent]` triggers validator warning | Zero ungrounded claims pass silently |
+| **M09 & M10: FastAPI Endpoints, Exports & UI** | `test_m09_api_and_exports.py` | HTTP requests to `/api/health`, `/api/workspaces`, `/api/collect/workflow`, `/export?format=stix|ftm|prov|csv|json`, `/` | All return `HTTP 200` with valid schemas | `404` on invalid workspace ID | Full E2E readiness |

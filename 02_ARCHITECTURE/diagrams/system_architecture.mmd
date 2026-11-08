@@ -1,0 +1,49 @@
+flowchart TB
+    subgraph UI["Workstation UI (React/TS + Sigma.js WebGL + Cytoscape.js + MapLibre)"]
+        V1["1. Dashboard & Case Mgr"]
+        V2["2. Playbook Launcher & Staging Triage"]
+        V3["3. Entity Explorer (FtM)"]
+        V4["4. Dual Graph (Sigma WebGL / Cytoscape)"]
+        V5["5. Fellegi-Sunter ER & Waterfall"]
+        V6["6. Bitemporal Timeline & Burst View"]
+        V7["7. HDBSCAN Geo Map"]
+        V8["8. W3C PROV & Subjective Logic Ledger"]
+        V9["9. GraphRAG AI & Reports"]
+        V10["10. Task & CircuitBreaker Monitor"]
+        V11["11. Fernet API Vault & OPSEC"]
+    end
+
+    subgraph API["FastAPI REST & WebSocket Layer (backend/main.py)"]
+        REST["REST Routers (/api/v2/*)"]
+        WS["WebSocket Stream (/ws/tasks/{workspace_id})"]
+    end
+
+    subgraph CORE["Core Analytical & Orchestration Engines"]
+        M01["M01: CryptoVault + TokenBucket + CircuitBreaker + OPSEC"]
+        M03["M03: AsyncEventBus + 24 OSINT Connectors + Staging Buffer"]
+        M04["M04: Defang/Regex + ONNX INT8 GLiNER + PDF/EXIF Forensics"]
+        M05["M05: 3-Pass Blocking + Fellegi-Sunter EM + Reversible Merge"]
+        M06["M06: W3C PROV DAG + Dong Copying + Subjective Logic Fusion"]
+        M07["M07: rustworkx Leiden + IEF-PageRank + HDBSCAN + Kleinberg Burst"]
+        M08["M08: Hybrid RRF Search (FTS5 BM25 + INT8 Vec) + GraphRAG Validator"]
+    end
+
+    subgraph STORAGE["Local Embedded Storage Layer (data/localosint.db)"]
+        SQLITE[("SQLite 3 WAL\n(Entities, Claims, PROV, Audit)")]
+        FTS5[("SQLite FTS5\n(Technical BM25 Index)")]
+        RTREE[("SQLite R*Tree\n(Spatial Bounding Boxes)")]
+        VEC[("sqlite-vec / NumPy INT8\n(384-d Embeddings)")]
+        DUCK[("DuckDB OLAP\n(Analytical Co-Processor)")]
+    end
+
+    UI <--> REST
+    UI <--> WS
+    REST --> M01 & M03 & M04 & M05 & M06 & M07 & M08
+    M03 --> M01
+    M03 --> M04
+    M04 --> M05
+    M05 --> M06
+    M06 --> M07
+    M03 & M04 & M05 & M06 & M07 & M08 <--> SQLITE
+    M08 <--> FTS5 & VEC
+    M07 <--> RTREE & DUCK

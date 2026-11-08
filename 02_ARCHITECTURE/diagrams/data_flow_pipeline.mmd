@@ -1,0 +1,24 @@
+sequenceDiagram
+    participant Analyst
+    participant API as FastAPI / Playbook Engine
+    participant Bus as M03 AsyncEventBus
+    participant Conn as OSINT Connector (e.g., crtsh_ct / gleif_lei)
+    participant IE as M04 Hybrid Extractor (Regex + GLiNER)
+    participant ER as M05 Blocked Fellegi-Sunter EM
+    participant Fusion as M06 W3C PROV & Subjective Logic
+    participant DB as M02 SQLite WAL + FTS5 + Vec
+
+    Analyst->>API: POST /api/v2/collect/playbook (target="example.org", depth=2)
+    API->>Bus: Emit Seed Event (Domain: "example.org", hop=0)
+    Bus->>Conn: Acquire TokenBucket + Check CircuitBreaker
+    Conn->>DB: Store RawEvidenceRecord (SHA-256 + Headers + LineageFamily)
+    Conn->>IE: Pass Raw Payload / Document Bytes
+    IE->>IE: Defang Normalize + Regex + ONNX INT8 GLiNER Spans
+    IE->>ER: Candidate Entities & Claims (with Staging check if >50)
+    ER->>DB: Lookup 3-Pass Blocking Keys (Sorted Neighborhood w=15 + MinHash)
+    ER->>ER: Compute Fellegi-Sunter EM Log2 Weights & IEF Adjustment
+    ER->>Fusion: Canonical Entity IDs + Claim Attestations
+    Fusion->>Fusion: Compute Dong Independence Weight I(e) + Jøsang Opinion ω=(b,d,u,a)
+    Fusion->>Fusion: Assign Epistemic Status (OBSERVED_FACT / CORROBORATED_FACT / CONFLICT)
+    Fusion->>DB: Commit Entities, Bitemporal Claims, FTS5 BM25 & INT8 Vectors
+    DB-->>Analyst: Stream Progress via WebSocket & Render WebGL Graph

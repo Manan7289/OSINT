@@ -1,0 +1,63 @@
+erDiagram
+    WORKSPACES ||--o{ ENTITIES : contains
+    WORKSPACES ||--o{ EVIDENCE_ARTIFACTS : stores
+    WORKSPACES ||--o{ CLAIMS : records
+    WORKSPACES ||--o{ TASKS : tracks
+    WORKSPACES ||--o{ REPORTS : generates
+    ENTITIES ||--o{ ENTITY_BLOCKING_KEYS : indexed_by
+    ENTITIES ||--o{ CLAIMS : subject_of
+    ENTITIES ||--o{ CLAIMS : object_of
+    CLAIMS ||--o{ CLAIM_EVIDENCE : supported_by
+    EVIDENCE_ARTIFACTS ||--o{ CLAIM_EVIDENCE : attests
+    EVIDENCE_ARTIFACTS ||--o{ EVIDENCE_ARTIFACTS : wasDerivedFrom
+    ENTITIES ||--o{ ENTITY_MERGE_LEDGER : winner_in
+
+    WORKSPACES {
+        string id PK
+        string name
+        string tlp_marking
+        int max_pivot_depth
+        string created_at
+    }
+    ENTITIES {
+        string id PK
+        string workspace_id FK
+        string ftm_schema
+        string canonical_value
+        string display_label
+        int is_staged
+        int is_shared_infra
+        float sl_belief
+        float sl_disbelief
+        float sl_uncertainty
+        int risk_score
+        int leiden_community_id
+        float ief_pagerank
+    }
+    CLAIMS {
+        string id PK
+        string workspace_id FK
+        string subject_entity_id FK
+        string predicate
+        string object_entity_id FK
+        string object_literal
+        string epistemic_status
+        float sl_belief
+        float sl_disbelief
+        float sl_uncertainty
+        string valid_from
+        string valid_until
+    }
+    EVIDENCE_ARTIFACTS {
+        string id PK
+        string workspace_id FK
+        string connector_id
+        string upstream_lineage_family
+        string parent_evidence_id FK
+        float independence_weight
+        string admiralty_reliability
+        int admiralty_credibility
+        string payload_sha256
+        int simhash_64
+        string observed_at
+    }

@@ -1,0 +1,13 @@
+flowchart LR
+    E1["Evidence e1\n(Lineage: GLEIF_LOU_REGISTRY)\nAdmiralty A1"] --> L1["Lineage Group 1"]
+    E2["Evidence e2\n(Lineage: US_SEC_EDGAR)\nAdmiralty A1"] --> L2["Lineage Group 2"]
+    E3["Evidence e3\n(Lineage: GDELT_GLOBAL_MEDIA)\nSimHash overlap=0.82 with e4"] --> L3["Lineage Group 3\n(Syndicated Cluster)"]
+    E4["Evidence e4\n(Lineage: GDELT_GLOBAL_MEDIA)"] --> L3
+
+    L3 -->|"Averaging Fusion (⊕~)\nPrevents Echo-Chamber Boost"| O3["Group 3 Opinion ω3"]
+    L1 --> O1["Group 1 Opinion ω1"]
+    L2 --> O2["Group 2 Opinion ω2"]
+
+    O1 & O2 & O3 -->|"Cumulative Fusion (⊕)\nAcross Independent Families"| FINAL["Final Claim Opinion\nω = (b, d, u, a)"]
+    FINAL -->|"b >= 0.82 & IndepFamilies >= 2"| CORR["CORROBORATED_FACT"]
+    FINAL -->|"d >= 0.25"| CONF["UNVERIFIED_CLAIM (CONFLICT ALERT)"]
