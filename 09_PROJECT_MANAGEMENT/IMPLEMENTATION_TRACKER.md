@@ -16,4 +16,4 @@ Update this tracker immediately after completing and testing each phase:
 | **10** | `M09` | FastAPI REST/WebSocket Server & 5-Format Export Engine (`JSON`, `CSV`, `STIX 2.1`, `FtM`, `PROV`) | `[x] COMPLETED` | `test_m09_api_and_exports.py` (6/6 passed) | `6a52660` |
 | **11** | `M10` | 11-View Dark-Mode Analyst Workstation UI (WebGL/Canvas Graph, Time-Travel, Waterfall ER, Map) | `[x] COMPLETED` | `test_m10_frontend.py` (4/4 passed) | `7dd66f4` |
 | **12** | QA | Full E2E Integration, OPSEC `PASSIVE_ONLY` Verification & 100+ Entity Performance Benchmark | `[x] COMPLETED` | `test_e2e_platform.py` (5/5 passed) | `0f292c5` |
-| **13** | Release | Windows 11 `install.bat`/`start.bat` scripts, documentation sync & final release gate | `[x] COMPLETED` | 60/60 Tests Passing (100%) | `HEAD` |
+| **13** | Release | Windows 11 `install.bat`/`start.bat` scripts, documentation sync & final release gate | `[x] COMPLETED` | 60/60 Tests Passing (100%) | `48de786` |
