@@ -93,7 +93,7 @@ class SweepDeltaEngine:
         sources_succeeded = sum(1 for v in collect_results.values() if v > 0)
 
         # Query tracks from this sweep
-        tracks = self.db.query_geo_tracks(limit=1500)
+        tracks = self.db.query_geo_tracks(limit=5000)
 
         # Compute deltas
         deltas, stats = self.compute_sweep_deltas(

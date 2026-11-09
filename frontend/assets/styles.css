@@ -1092,3 +1092,136 @@ html, body {
   background: rgba(16, 185, 129, 0.15);
 }
 
+/* =============================================================================
+   TACTICAL MAP MARKERS & KINETIC SILHOUETTES
+   ============================================================================= */
+
+.tactical-marker {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  background: transparent;
+  border: none;
+}
+
+.marker-plane {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 6px currentColor);
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+
+.marker-plane:hover {
+  transform: scale(1.3) !important;
+  z-index: 1000 !important;
+}
+
+.marker-vessel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(16, 185, 129, 0.25);
+  border: 1.5px solid #10B981;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.6), inset 0 0 6px rgba(16, 185, 129, 0.3);
+  cursor: pointer;
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+
+.marker-vessel .vessel-arrow {
+  display: block;
+  font-size: 11px;
+  color: #10B981;
+  line-height: 1;
+  transition: transform 0.3s linear;
+}
+
+.marker-vessel:hover {
+  transform: scale(1.3) !important;
+  background: rgba(16, 185, 129, 0.45);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.9);
+  z-index: 1000 !important;
+}
+
+.marker-sanctioned {
+  z-index: 999 !important;
+}
+
+.marker-pulse-crimson {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.35);
+  border: 2px solid #EF4444;
+  box-shadow: 0 0 14px rgba(239, 68, 68, 0.9);
+  animation: marker-crimson-pulse 1.8s infinite ease-in-out;
+  cursor: pointer;
+}
+
+.marker-pulse-crimson .marker-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+@keyframes marker-crimson-pulse {
+  0% {
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+    transform: scale(0.95);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(239, 68, 68, 1);
+    transform: scale(1.15);
+  }
+  100% {
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+    transform: scale(0.95);
+  }
+}
+
+.marker-satellite {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #C084FC;
+  filter: drop-shadow(0 0 6px rgba(168, 85, 247, 0.8));
+  cursor: pointer;
+}
+
+.marker-cam {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #22D3EE;
+  filter: drop-shadow(0 0 5px rgba(34, 211, 238, 0.8));
+  cursor: pointer;
+}
+
+/* Tactical Leaflet Tooltip */
+.leaflet-tooltip.tactical-tooltip {
+  background: rgba(10, 15, 28, 0.92);
+  border: 1px solid var(--border-hud);
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  box-shadow: var(--shadow-hud);
+  backdrop-filter: blur(8px);
+}
+

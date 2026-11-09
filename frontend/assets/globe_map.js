@@ -24,11 +24,14 @@ class GlobeMapEngine {
     };
     this.filterMode = 'ALL';
     this.maxAltitudeFilter = 60000;
-    this.maxSpeedFilter = 800;
+    this.minSpeedFilter = 0;
     this.proximityCircle = null;
     this.markerGroups = {};
+    this.kineticMap = new Map();
     this.geofenceLayerGroup = null;
     this.satellitesTimer = null;
+    this.telemetryTimer = null;
+    this.kineticAnimTimer = null;
     this.currentCenter = [20.0, 0.0];
     this.currentZoom = 3;
     
@@ -50,6 +53,8 @@ class GlobeMapEngine {
     this.fetchLayers();
     this.fetchAndRenderGeofences();
     this.startLiveSatelliteLoop();
+    this.startLiveTelemetryLoop();
+    this.startKineticAnimationLoop();
   }
 
   init2DMap() {
@@ -201,8 +206,9 @@ class GlobeMapEngine {
   renderLayers() {
     if (!this.map2D) return;
 
-    // Clear existing markers
+    // Clear existing markers and kinetic tracking cache
     Object.values(this.markerGroups).forEach(group => group.clearLayers());
+    this.kineticMap.clear();
 
     const features = this.layersData.features || [];
 
@@ -226,9 +232,9 @@ class GlobeMapEngine {
       if (this.filterMode === 'AIR' && layerType !== 'AIRCRAFT') return;
       if (this.filterMode === 'SEA' && layerType !== 'VESSEL') return;
 
-      // Sliders check
+      // Sliders check: max altitude and min speed
       if (props.altitude_m != null && (props.altitude_m * 3.28084) > this.maxAltitudeFilter) return;
-      if (props.speed_kts != null && props.speed_kts > this.maxSpeedFilter) return;
+      if (props.speed_kts != null && props.speed_kts < this.minSpeedFilter) return;
 
       if (geom.type === 'Point') {
         const [lon, lat] = geom.coordinates;
@@ -261,19 +267,21 @@ class GlobeMapEngine {
     const isSanctioned = Boolean(props.is_sanctioned);
     const isMilitary = Boolean(props.is_military);
     const layerType = props.layer_type;
-    const heading = props.heading || 0;
+    const heading = parseFloat(props.heading != null ? props.heading : 0);
 
     let iconHtml = '';
     let markerClass = 'tactical-marker';
 
     if (isSanctioned) {
       markerClass += ' marker-sanctioned';
-      iconHtml = `<div class="marker-pulse-crimson"><span class="marker-icon">⛔</span></div>`;
+      iconHtml = `<div class="marker-pulse-crimson" title="OFAC SANCTIONED: ${props.display_label || props.callsign_or_name}"><span class="marker-icon">⛔</span></div>`;
     } else if (layerType === 'AIRCRAFT') {
       const color = isMilitary ? '#F59E0B' : '#38BDF8';
       iconHtml = `<div class="marker-plane" style="transform: rotate(${heading}deg); color: ${color};">✈</div>`;
     } else if (layerType === 'VESSEL') {
-      iconHtml = `<div class="marker-vessel" style="transform: rotate(${heading}deg); color: #10B981;">▲</div>`;
+      iconHtml = `<div class="marker-vessel">
+        <span class="vessel-arrow" style="transform: rotate(${heading}deg);">▲</span>
+      </div>`;
     } else if (layerType === 'SATELLITE') {
       iconHtml = `<div class="marker-satellite" style="color: #A855F7;">◈</div>`;
     } else if (layerType === 'EARTHQUAKE') {
@@ -289,11 +297,20 @@ class GlobeMapEngine {
     const customIcon = L.divIcon({
       html: iconHtml,
       className: markerClass,
-      iconSize: [24, 24],
-      iconAnchor: [12, 12]
+      iconSize: [26, 26],
+      iconAnchor: [13, 13]
     });
 
     const marker = L.marker([lat, lon], { icon: customIcon });
+
+    // Interactive tooltip
+    const speedStr = props.speed_kts ? `${Math.round(props.speed_kts)} kts` : 'Stationary';
+    const altStr = props.altitude_m ? `${Math.round(props.altitude_m)}m` : 'Surface';
+    marker.bindTooltip(
+      `<div style="font-weight:700; color:#38BDF8;">${props.display_label || props.callsign_or_name || 'Asset'}</div>` +
+      `<div style="font-size:10px; color:#94A3B8;">${props.layer_type} · ${speedStr} · ${altStr} · ${Math.round(heading)}°</div>`,
+      { className: 'tactical-tooltip', direction: 'top', offset: [0, -12] }
+    );
 
     marker.on('click', () => {
       this.renderProximityCircle(lat, lon, 50);
@@ -303,6 +320,23 @@ class GlobeMapEngine {
         window.app.selectEntity(props, lat, lon);
       }
     });
+
+    // Register kinetic tracking for forward dead reckoning
+    const velMps = props.velocity_mps || (props.speed_kts ? props.speed_kts * 0.514444 : 0);
+    if (velMps > 1.0 && (layerType === 'AIRCRAFT' || layerType === 'VESSEL')) {
+      const trackId = props.track_id || `${props.entity_id}_${lat}_${lon}`;
+      this.kineticMap.set(trackId, {
+        marker,
+        lat: parseFloat(lat),
+        lon: parseFloat(lon),
+        heading,
+        velocity_mps: velMps,
+        lastExtrapolated: performance.now()
+      });
+    }
+
+    return marker;
+  }
 
     return marker;
   }
@@ -476,6 +510,41 @@ class GlobeMapEngine {
     }, 15000);
   }
 
+  startLiveTelemetryLoop() {
+    if (this.telemetryTimer) clearInterval(this.telemetryTimer);
+    // Refresh live aviation and maritime tracks every 12 seconds
+    this.telemetryTimer = setInterval(async () => {
+      await this.fetchLayers();
+    }, 12000);
+  }
+
+  startKineticAnimationLoop() {
+    if (this.kineticAnimTimer) clearInterval(this.kineticAnimTimer);
+    // Smooth forward dead-reckoning extrapolation for active airplanes and vessels
+    this.kineticAnimTimer = setInterval(() => {
+      if (this.currentMode !== '2D') return;
+      const now = performance.now();
+      this.kineticMap.forEach((entry, trackId) => {
+        if (!entry.marker || !entry.velocity_mps || entry.velocity_mps <= 0) return;
+        const dtSec = (now - entry.lastExtrapolated) / 1000.0;
+        if (dtSec <= 0.2 || dtSec > 40) return;
+
+        // Kinematic forward projection: dist = v * dt
+        const distM = entry.velocity_mps * dtSec;
+        const headingRad = (entry.heading * Math.PI) / 180.0;
+        const dLat = (distM * Math.cos(headingRad)) / 111320.0;
+        const cosLat = Math.cos((entry.lat * Math.PI) / 180.0);
+        const dLon = Math.abs(cosLat) > 0.001 ? (distM * Math.sin(headingRad)) / (111320.0 * cosLat) : 0;
+
+        entry.lat += dLat;
+        entry.lon += dLon;
+        entry.lastExtrapolated = now;
+
+        entry.marker.setLatLng([entry.lat, entry.lon]);
+      });
+    }, 1000);
+  }
+
   updateCoordDisplay(lat, lon, zoom) {
     const el = document.getElementById('footer-coords');
     if (el) el.textContent = `${lat.toFixed(4)}°N, ${lon.toFixed(4)}°E | ZOOM ${zoom.toFixed(1)}`;
@@ -511,24 +580,26 @@ class GlobeMapEngine {
 
     // Altitude filter slider
     const altSlider = document.getElementById('slider-altitude-filter');
-    const altVal = document.getElementById('val-altitude-filter');
+    const altVal = document.getElementById('altitude-filter-val');
     if (altSlider) {
       altSlider.addEventListener('input', (e) => {
         this.maxAltitudeFilter = parseInt(e.target.value, 10);
-        if (altVal) altVal.textContent = `${this.maxAltitudeFilter.toLocaleString()} ft`;
+        if (altVal) altVal.textContent = `${this.maxAltitudeFilter.toLocaleString()} FT`;
         this.renderLayers();
       });
     }
 
-    // Speed filter slider
+    // Speed filter slider (minimum speed)
     const spdSlider = document.getElementById('slider-speed-filter');
-    const spdVal = document.getElementById('val-speed-filter');
+    const spdVal = document.getElementById('speed-filter-val');
     if (spdSlider) {
       spdSlider.addEventListener('input', (e) => {
-        this.maxSpeedFilter = parseInt(e.target.value, 10);
-        if (spdVal) spdVal.textContent = `${this.maxSpeedFilter} kts`;
+        this.minSpeedFilter = parseInt(e.target.value, 10);
+        if (spdVal) spdVal.textContent = `${this.minSpeedFilter} KTS`;
         this.renderLayers();
       });
+    }
+  }
     }
   }
 }

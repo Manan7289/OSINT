@@ -1046,7 +1046,7 @@ def toggle_auto_sweep(enabled: Optional[bool] = Query(None)):
 def get_geospatial_layers(
     layers: Optional[str] = Query(None, description="Comma-separated layer types, e.g. AIRCRAFT,VESSEL,SATELLITE,EARTHQUAKE,CAMERA"),
     since: Optional[str] = Query(None),
-    limit: int = Query(2000, le=5000),
+    limit: int = Query(5000, le=10000),
 ):
     layer_types = [l.strip().upper() for l in layers.split(",")] if layers else None
     tracks = db.query_geo_tracks(layer_types=layer_types, since_iso=since, limit=limit)
@@ -1058,22 +1058,58 @@ def get_geospatial_layers(
 
     features = []
     for t in tracks:
+        meta = t.get("metadata", {}) or {}
+        layer = t.get("layer_type")
+
+        # Extract heading
+        heading = t.get("heading") if t.get("heading") is not None else t.get("heading_deg")
+        if heading is None:
+            heading = meta.get("heading") or meta.get("cog_deg") or 0.0
+
+        # Extract speed in knots and velocity in m/s
+        vel_mps = t.get("velocity_mps")
+        speed_kts = t.get("speed_kts")
+        if speed_kts is None and vel_mps is not None:
+            speed_kts = round(vel_mps * 1.94384, 1)
+        elif speed_kts is None:
+            speed_kts = float(meta.get("speed_kts") or meta.get("sog_knots") or 0.0)
+
+        if vel_mps is None and speed_kts is not None:
+            vel_mps = round(speed_kts * 0.514444, 2)
+
+        # Extract display label and callsign/name
+        display_label = t.get("display_label") or meta.get("callsign") or meta.get("vessel_name") or meta.get("name") or t.get("entity_id")
+        callsign_or_name = t.get("callsign_or_name") or meta.get("callsign") or meta.get("vessel_name") or meta.get("name") or t.get("entity_id")
+
+        # Source network
+        source_net = t.get("source_network") or meta.get("source_network")
+        if not source_net:
+            if layer == "AIRCRAFT":
+                source_net = "ADSB.lol (MIL)" if t.get("is_military") else "OpenSky ADS-B"
+            elif layer == "VESSEL":
+                source_net = "Digitraffic Marine AIS" if t.get("telemetry_status") == "LIVE" else "Marine AIS Bootstrap"
+            elif layer == "SATELLITE":
+                source_net = "CelesTrak SGP4"
+            else:
+                source_net = "OSINT Telemetry"
+
         props = {
             "track_id": t.get("track_id"),
             "entity_id": t.get("entity_id"),
-            "layer_type": t.get("layer_type"),
-            "display_label": t.get("display_label"),
-            "callsign_or_name": t.get("callsign_or_name"),
+            "layer_type": layer,
+            "display_label": display_label,
+            "callsign_or_name": callsign_or_name,
             "altitude_m": t.get("altitude_m"),
-            "heading": t.get("heading"),
-            "speed_kts": t.get("speed_kts"),
-            "telemetry_status": t.get("telemetry_status"),
-            "source_network": t.get("source_network"),
+            "heading": float(heading),
+            "speed_kts": float(speed_kts) if speed_kts is not None else 0.0,
+            "velocity_mps": float(vel_mps) if vel_mps is not None else 0.0,
+            "telemetry_status": t.get("telemetry_status", "LIVE"),
+            "source_network": source_net,
             "is_military": t.get("is_military"),
             "is_sanctioned": t.get("is_sanctioned"),
             "risk_score": t.get("risk_score"),
             "observed_at": t.get("observed_at"),
-            "metadata": t.get("metadata", {}),
+            "metadata": meta,
         }
         features.append({
             "type": "Feature",
