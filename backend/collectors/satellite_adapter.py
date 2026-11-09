@@ -36,10 +36,11 @@ class SatelliteAdapter:
     def fetch_live_satellites(
         self,
         target_dt_utc: Optional[datetime.datetime] = None,
+        target_time: Optional[datetime.datetime] = None,
         max_results: int = 50,
     ) -> List[Dict[str, Any]]:
         """Propagates satellites to the given UTC timestamp (defaults to current time)."""
-        dt = target_dt_utc or datetime.datetime.now(datetime.timezone.utc)
+        dt = target_time or target_dt_utc or datetime.datetime.now(datetime.timezone.utc)
         raw_satellites: List[Dict[str, Any]] = []
 
         # 1. Use memory cache if populated
