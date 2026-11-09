@@ -5,8 +5,10 @@ M09: FastAPI REST/WebSocket Server & Multi-Format Export Engine.
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import json
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -108,11 +110,45 @@ def seed_demo_workspace_if_empty() -> None:
     db.add_claim(ws_id, e_domain["id"], "REGISTERED_BY", e_co["id"], epistemic_status="OBSERVED_FACT")
 
 
+logger = logging.getLogger(__name__)
+
+# Scheduled 15-minute Crucix auto-sweeper state
+auto_sweeper_state = {
+    "enabled": True,
+    "interval_seconds": 900,
+    "last_sweep_at": None,
+    "sweep_count": 0,
+}
+
+
+async def background_scheduled_sweeper():
+    """Autonomous Crucix 15-minute scheduled parallel sweep background task."""
+    await asyncio.sleep(10)
+    while True:
+        try:
+            if auto_sweeper_state["enabled"]:
+                res = sweep_delta_engine.run_sweep()
+                auto_sweeper_state["last_sweep_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                auto_sweeper_state["sweep_count"] += 1
+                await alert_engine.broadcast_event("SWEEP_COMPLETED", {
+                    "sweep_id": res["sweep_id"],
+                    "escalation_score": res["escalation_score"],
+                    "deltas_count": len(res.get("deltas", [])),
+                    "stats": res.get("stats", {}),
+                    "source": "SCHEDULED_15M_SWEEPER",
+                })
+        except Exception as e:
+            logger.error(f"Error in background scheduled sweeper: {e}")
+        await asyncio.sleep(auto_sweeper_state["interval_seconds"])
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     seed_demo_workspace_if_empty()
     sanctions_loader.load_sanctions()
+    sweeper_task = asyncio.create_task(background_scheduled_sweeper())
     yield
+    sweeper_task.cancel()
     await orchestrator.close()
 
 
@@ -988,6 +1024,20 @@ def get_latest_sweep_briefing_endpoint():
     return briefing
 
 
+@app.get("/api/v1/sweeps/auto/status")
+def get_auto_sweep_status():
+    return auto_sweeper_state
+
+
+@app.post("/api/v1/sweeps/auto/toggle")
+def toggle_auto_sweep(enabled: Optional[bool] = Query(None)):
+    if enabled is not None:
+        auto_sweeper_state["enabled"] = enabled
+    else:
+        auto_sweeper_state["enabled"] = not auto_sweeper_state["enabled"]
+    return auto_sweeper_state
+
+
 # -----------------------------------------------------------------------------
 # V3.0 GEOSPATIAL & KINETIC LAYERS ENDPOINTS
 # -----------------------------------------------------------------------------
@@ -1121,6 +1171,33 @@ def get_satellites_endpoint(timestamp_iso: Optional[str] = None):
         except Exception:
             pass
     return satellite_adapter.fetch_live_satellites(target_time=target_dt)
+
+
+@app.get("/api/v1/geospatial/proximity")
+def get_geospatial_proximity(
+    lat: float = Query(...),
+    lon: float = Query(...),
+    radius_km: float = Query(50.0, ge=1.0, le=500.0),
+    layers: Optional[str] = Query(None),
+    limit: int = Query(50, le=200),
+):
+    """Argos Atlas-style spatial proximity correlation:
+    Discovers all kinetic assets, infrastructure, and cameras within radius_km.
+    """
+    layer_types = [l.strip().upper() for l in layers.split(",")] if layers else None
+    proximate = spatiotemporal_engine.find_proximate_assets(
+        center_lat=lat,
+        center_lon=lon,
+        radius_km=radius_km,
+        layer_types=layer_types,
+        limit=limit,
+    )
+    return {
+        "center": {"lat": lat, "lon": lon},
+        "radius_km": radius_km,
+        "count": len(proximate),
+        "proximate_assets": proximate,
+    }
 
 
 # -----------------------------------------------------------------------------

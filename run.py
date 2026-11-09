@@ -6,7 +6,7 @@ import uvicorn
 from backend.core.config import HOST, PORT
 
 if __name__ == "__main__":
-    print(f"Starting LocalOSINT v2.0 Workstation on http://{HOST}:{PORT}")
+    print(f"Starting LocalOSINT v3.0 Global Intelligence Command Centre on http://{HOST}:{PORT}")
     uvicorn.run(
         "backend.main:app",
         host=HOST,

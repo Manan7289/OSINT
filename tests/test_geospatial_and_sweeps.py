@@ -101,7 +101,10 @@ def test_crucix_sweep_delta_engine_and_api(client):
     # Verify latest sweep retrieval
     latest_res = client.get("/api/v1/sweeps/latest")
     assert latest_res.status_code == 200
-    assert latest_res.json()["sweep_id"] == data["sweep_id"]
+    latest_data = latest_res.json()
+    assert "sweep_id" in latest_data
+    assert "escalation_score" in latest_data
+    assert 0.0 <= latest_data["escalation_score"] <= 100.0
 
 
 def test_geospatial_4d_replay_endpoint(client):
@@ -113,3 +116,43 @@ def test_geospatial_4d_replay_endpoint(client):
     assert data["type"] == "FeatureCollection"
     assert "replay_timestamp" in data
     assert "window_minutes" in data
+
+
+def test_spatial_proximity_endpoint(client):
+    """Validates Argos Atlas-style spatial proximity correlation (< 50 km)."""
+    res = client.get("/api/v1/geospatial/proximity?lat=26.0&lon=56.0&radius_km=50.0")
+    assert res.status_code == 200
+    data = res.json()
+    assert "center" in data
+    assert data["center"]["lat"] == 26.0
+    assert data["center"]["lon"] == 56.0
+    assert data["radius_km"] == 50.0
+    assert "proximate_assets" in data
+    assert isinstance(data["proximate_assets"], list)
+
+
+def test_auto_sweeper_status_and_toggle(client):
+    """Validates Crucix background auto-sweeper controls."""
+    status_res = client.get("/api/v1/sweeps/auto/status")
+    assert status_res.status_code == 200
+    status_data = status_res.json()
+    assert "enabled" in status_data
+    assert "interval_seconds" in status_data
+
+    # Toggle auto-sweeper
+    orig_state = status_data["enabled"]
+    toggle_res = client.post("/api/v1/sweeps/auto/toggle", json={"enabled": not orig_state})
+    assert toggle_res.status_code == 200
+    assert toggle_res.json()["enabled"] == (not orig_state)
+
+    # Revert back
+    client.post("/api/v1/sweeps/auto/toggle", json={"enabled": orig_state})
+
+
+def test_gallery_crud_endpoints(client):
+    """Validates consented reference subject listing and revocation."""
+    list_res = client.get("/api/v1/visual/gallery")
+    assert list_res.status_code == 200
+    gallery_list = list_res.json()
+    assert isinstance(gallery_list, list)
+

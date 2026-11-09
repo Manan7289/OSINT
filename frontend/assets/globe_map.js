@@ -22,6 +22,10 @@ class GlobeMapEngine {
       GPS_JAMMING: true,
       GEOFENCES: true
     };
+    this.filterMode = 'ALL';
+    this.maxAltitudeFilter = 60000;
+    this.maxSpeedFilter = 800;
+    this.proximityCircle = null;
     this.markerGroups = {};
     this.geofenceLayerGroup = null;
     this.satellitesTimer = null;
@@ -44,6 +48,7 @@ class GlobeMapEngine {
     this.init3DGlobe();
     this.initEventListeners();
     this.fetchLayers();
+    this.fetchAndRenderGeofences();
     this.startLiveSatelliteLoop();
   }
 
@@ -215,6 +220,16 @@ class GlobeMapEngine {
       if (layerType === 'CAMERA' && !this.activeLayers.CAMERA) return;
       if (layerType === 'GPS_JAMMING' && !this.activeLayers.GPS_JAMMING) return;
 
+      // Quick filter check
+      if (this.filterMode === 'MILITARY' && !props.is_military) return;
+      if (this.filterMode === 'SANCTIONED' && !props.is_sanctioned) return;
+      if (this.filterMode === 'AIR' && layerType !== 'AIRCRAFT') return;
+      if (this.filterMode === 'SEA' && layerType !== 'VESSEL') return;
+
+      // Sliders check
+      if (props.altitude_m != null && (props.altitude_m * 3.28084) > this.maxAltitudeFilter) return;
+      if (props.speed_kts != null && props.speed_kts > this.maxSpeedFilter) return;
+
       if (geom.type === 'Point') {
         const [lon, lat] = geom.coordinates;
         if (lat == null || lon == null) return;
@@ -281,12 +296,65 @@ class GlobeMapEngine {
     const marker = L.marker([lat, lon], { icon: customIcon });
 
     marker.on('click', () => {
-      if (window.app && window.app.selectEntity) {
+      this.renderProximityCircle(lat, lon, 50);
+      if (window.app && window.app.selectEntityWithProximity) {
+        window.app.selectEntityWithProximity(props, lat, lon);
+      } else if (window.app && window.app.selectEntity) {
         window.app.selectEntity(props, lat, lon);
       }
     });
 
     return marker;
+  }
+
+  renderProximityCircle(lat, lon, radiusKm = 50) {
+    this.clearProximityCircle();
+    if (!this.map2D || typeof L === 'undefined') return;
+    this.proximityCircle = L.circle([lat, lon], {
+      radius: radiusKm * 1000,
+      color: '#38BDF8',
+      fillColor: '#38BDF8',
+      fillOpacity: 0.08,
+      weight: 1.5,
+      dashArray: '6, 6'
+    }).addTo(this.map2D);
+  }
+
+  clearProximityCircle() {
+    if (this.proximityCircle && this.map2D) {
+      this.map2D.removeLayer(this.proximityCircle);
+      this.proximityCircle = null;
+    }
+  }
+
+  async fetchAndRenderGeofences() {
+    if (!this.map2D || !this.geofenceLayerGroup) return;
+    try {
+      const res = await fetch('/api/v1/geofences');
+      if (res.ok) {
+        const zones = await res.json();
+        this.geofenceLayerGroup.clearLayers();
+        zones.forEach(z => {
+          let poly = z.polygon_geojson;
+          if (typeof poly === 'string') {
+            try { poly = JSON.parse(poly); } catch (e) { poly = null; }
+          }
+          if (poly && poly.coordinates) {
+            const latLngs = poly.coordinates[0].map(c => [c[1], c[0]]);
+            const lPoly = L.polygon(latLngs, {
+              color: '#38BDF8',
+              fillColor: '#38BDF8',
+              fillOpacity: 0.12,
+              weight: 2,
+              dashArray: '5, 5'
+            }).bindTooltip(`<b>⬟ ${z.name}</b><br>Severity: ${z.min_severity}`, { sticky: true });
+            this.geofenceLayerGroup.addLayer(lPoly);
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("Could not load geofences for map:", e);
+    }
   }
 
   render3DGlobeData() {
@@ -430,6 +498,38 @@ class GlobeMapEngine {
         if (preset) this.flyToPreset(preset);
       });
     });
+
+    // Quick filter pills
+    document.querySelectorAll('.filter-pill').forEach(pill => {
+      pill.addEventListener('click', (e) => {
+        document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+        e.target.classList.add('active');
+        this.filterMode = e.target.getAttribute('data-filter') || 'ALL';
+        this.renderLayers();
+      });
+    });
+
+    // Altitude filter slider
+    const altSlider = document.getElementById('slider-altitude-filter');
+    const altVal = document.getElementById('val-altitude-filter');
+    if (altSlider) {
+      altSlider.addEventListener('input', (e) => {
+        this.maxAltitudeFilter = parseInt(e.target.value, 10);
+        if (altVal) altVal.textContent = `${this.maxAltitudeFilter.toLocaleString()} ft`;
+        this.renderLayers();
+      });
+    }
+
+    // Speed filter slider
+    const spdSlider = document.getElementById('slider-speed-filter');
+    const spdVal = document.getElementById('val-speed-filter');
+    if (spdSlider) {
+      spdSlider.addEventListener('input', (e) => {
+        this.maxSpeedFilter = parseInt(e.target.value, 10);
+        if (spdVal) spdVal.textContent = `${this.maxSpeedFilter} kts`;
+        this.renderLayers();
+      });
+    }
   }
 }
 

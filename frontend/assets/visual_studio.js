@@ -14,6 +14,8 @@ class VisualStudioEngine {
     this.bindDropzone();
     this.bindActionButtons();
     this.bindVerificationForms();
+    this.bindWebcamCapture();
+    this.fetchAndRenderGallery();
   }
 
   bindDropzone() {
@@ -70,6 +72,7 @@ class VisualStudioEngine {
     if (btnOpen && modal) {
       btnOpen.addEventListener('click', () => {
         modal.classList.remove('hidden');
+        this.fetchAndRenderGallery();
       });
     }
 
@@ -238,10 +241,16 @@ class VisualStudioEngine {
 
           const out = await res.json();
           alert(`Subject '${out.subject_name}' enrolled successfully into Gallery (Expires in 90 days).`);
+          await this.fetchAndRenderGallery();
         } catch (e) {
           alert(`Enrollment rejected: ${e.message}`);
         }
       });
+    }
+
+    const btnRefresh = document.getElementById('btn-refresh-gallery');
+    if (btnRefresh) {
+      btnRefresh.addEventListener('click', () => this.fetchAndRenderGallery());
     }
 
     // Probe Verify Form
@@ -313,6 +322,126 @@ class VisualStudioEngine {
           }
         }
       });
+    }
+  }
+
+  bindWebcamCapture() {
+    const btn = document.getElementById('btn-webcam-capture');
+    if (!btn) return;
+
+    btn.addEventListener('click', async () => {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          alert("Webcam capture is not supported in this browser environment.");
+          return;
+        }
+        btn.textContent = '⏳ Accessing Camera...';
+        btn.disabled = true;
+
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+        const video = document.createElement('video');
+        video.srcObject = stream;
+        video.play();
+
+        await new Promise(resolve => {
+          video.onloadedmetadata = () => resolve();
+        });
+
+        // Capture frame to canvas
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Stop stream tracks
+        stream.getTracks().forEach(track => track.stop());
+
+        this.currentImageBase64 = canvas.toDataURL('image/jpeg', 0.92);
+        this.currentFilename = `webcam_frame_${Date.now()}.jpg`;
+
+        btn.textContent = '📷 Live Webcam Frame Capture';
+        btn.disabled = false;
+
+        await this.analyzeCurrentImage();
+      } catch (err) {
+        console.warn("Webcam capture error:", err);
+        btn.textContent = '📷 Live Webcam Frame Capture';
+        btn.disabled = false;
+        alert(`Webcam access error: ${err.message || 'Permission denied or no camera device found.'}`);
+      }
+    });
+  }
+
+  async fetchAndRenderGallery() {
+    const container = document.getElementById('gallery-subjects-container');
+    if (!container) return;
+
+    try {
+      const res = await fetch('/api/v1/visual/gallery');
+      if (!res.ok) throw new Error("Failed to load consented gallery");
+      const subjects = await res.json();
+
+      container.innerHTML = '';
+      if (!subjects || subjects.length === 0) {
+        container.innerHTML = '<div style="color:var(--text-dim); font-size:11px; padding:10px;">No enrolled reference subjects in consented gallery.</div>';
+        return;
+      }
+
+      subjects.forEach(sub => {
+        const card = document.createElement('div');
+        card.className = 'gallery-subject-card';
+        
+        let daysLeft = 90;
+        if (sub.enrolled_at) {
+          const enrolledDate = new Date(sub.enrolled_at);
+          const diffDays = Math.max(0, 90 - Math.floor((Date.now() - enrolledDate.getTime()) / (1000 * 60 * 60 * 24)));
+          daysLeft = diffDays;
+        }
+
+        card.innerHTML = `
+          <div class="gallery-card-header">
+            <div>
+              <strong style="color:var(--text-main); font-size:12px;">${sub.subject_name || 'Authorized Subject'}</strong>
+              <div style="font-size:10px; color:var(--text-muted);">${sub.consent_purpose || 'General OSINT Verification'}</div>
+            </div>
+            <button class="btn-revoke-consent" data-id="${sub.gallery_id}" title="Revoke biometric enrollment">Revoke</button>
+          </div>
+          <div class="gallery-card-body">
+            <span>Enrolled: <strong>${(sub.enrolled_at || '').substring(0, 10)}</strong></span>
+            <span>Retention: <strong style="color:${daysLeft < 15 ? '#EF4444' : '#10B981'};">${daysLeft} days left</strong></span>
+            <div style="font-size:9px; color:var(--text-dim); word-break:break-all; margin-top:2px;">
+              ID: <code>${sub.gallery_id ? sub.gallery_id.substring(0, 18) : ''}...</code>
+            </div>
+          </div>
+        `;
+
+        const revokeBtn = card.querySelector('.btn-revoke-consent');
+        if (revokeBtn) {
+          revokeBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (confirm(`Revoke biometric enrollment for '${sub.subject_name}'? This will permanently delete their embedding.`)) {
+              await this.revokeGallerySubject(sub.gallery_id);
+            }
+          });
+        }
+
+        container.appendChild(card);
+      });
+    } catch (e) {
+      console.warn("Gallery fetch error:", e);
+      container.innerHTML = '<div style="color:var(--text-dim); font-size:11px;">Consented gallery status unavailable.</div>';
+    }
+  }
+
+  async revokeGallerySubject(galleryId) {
+    try {
+      const res = await fetch(`/api/v1/visual/gallery/${galleryId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error("Revocation failed");
+      if (window.app) window.app.showToast("Biometric consent revoked and record deleted.", "success");
+      await this.fetchAndRenderGallery();
+    } catch (e) {
+      alert(`Revocation failed: ${e.message}`);
     }
   }
 }

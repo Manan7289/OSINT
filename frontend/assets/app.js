@@ -9,6 +9,8 @@ class AppController {
     this.cy = null;
     this.currentWorkspaceId = null;
     this.sseSource = null;
+    this.audioCtx = null;
+    this.audioMuted = false;
   }
 
   async init() {
@@ -28,6 +30,75 @@ class AppController {
     this.bindGlobalShortcuts();
     this.bindTopBarActions();
     this.bindInspectorActions();
+    this.bindAudioToggle();
+  }
+
+  initAudio() {
+    if (!this.audioCtx) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass) {
+        this.audioCtx = new AudioContextClass();
+      }
+    }
+    if (this.audioCtx && this.audioCtx.state === 'suspended') {
+      this.audioCtx.resume();
+    }
+  }
+
+  playTacticalChirp(severity = 'MEDIUM') {
+    if (this.audioMuted) return;
+    try {
+      this.initAudio();
+      if (!this.audioCtx) return;
+
+      const now = this.audioCtx.currentTime;
+      const osc = this.audioCtx.createOscillator();
+      const gain = this.audioCtx.createGain();
+
+      osc.connect(gain);
+      gain.connect(this.audioCtx.destination);
+
+      if (severity === 'CRITICAL' || severity === 'HIGH') {
+        // High-tension double tactical pulse: 880Hz -> 1320Hz
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(880, now);
+        osc.frequency.exponentialRampToValueAtTime(1320, now + 0.12);
+        gain.gain.setValueAtTime(0.18, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+        osc.start(now);
+        osc.stop(now + 0.25);
+      } else {
+        // Low/Medium subtle telemetry chime: 523.25Hz -> 659.25Hz
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(523.25, now);
+        osc.frequency.exponentialRampToValueAtTime(659.25, now + 0.08);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+        osc.start(now);
+        osc.stop(now + 0.18);
+      }
+    } catch (e) {
+      console.debug("Audio chirp suppressed or unsupported:", e);
+    }
+  }
+
+  bindAudioToggle() {
+    const btn = document.getElementById('btn-toggle-audio');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      this.initAudio();
+      this.audioMuted = !this.audioMuted;
+      if (this.audioMuted) {
+        btn.textContent = '🔇 Audio: OFF';
+        btn.classList.add('muted');
+        this.showToast('Tactical audio alerts muted', 'info');
+      } else {
+        btn.textContent = '🔊 Audio: ON';
+        btn.classList.remove('muted');
+        this.playTacticalChirp('LOW');
+        this.showToast('Tactical audio alerts enabled', 'success');
+      }
+    });
   }
 
   async loadWorkspaces() {
@@ -72,11 +143,13 @@ class AppController {
         if (window.globeMap) {
           window.globeMap.fetchLayers();
         }
+        this.playTacticalChirp(data.escalation_score > 60 ? 'HIGH' : 'LOW');
         this.showToast(`Crucix Sweep complete (Tension: ${data.escalation_score}/100)`, 'success');
       });
 
       this.sseSource.addEventListener('GEOFENCE_BREACH', (e) => {
         const data = JSON.parse(e.data);
+        this.playTacticalChirp('CRITICAL');
         this.showToast(`ALERT: Geofence breach detected (${data.severity || 'HIGH'})`, 'error');
       });
 
@@ -234,6 +307,85 @@ class AppController {
         btn.closest('.modal-overlay').classList.add('hidden');
       });
     });
+  }
+
+  async selectEntityWithProximity(props, lat, lon) {
+    this.selectEntity(props, lat, lon);
+    if (lat != null && lon != null) {
+      await this.fetchProximityAssets(lat, lon, 50.0);
+    }
+  }
+
+  async fetchProximityAssets(lat, lon, radiusKm = 50.0) {
+    const listEl = document.getElementById('inspector-proximity-list');
+    const badgeEl = document.getElementById('proximity-count-badge');
+    if (!listEl) return;
+
+    listEl.innerHTML = '<div style="color:var(--text-dim); font-size:11px; padding:6px 0;">Correlating spatial assets within 50 km...</div>';
+    if (badgeEl) badgeEl.textContent = '...';
+
+    try {
+      const res = await fetch(`/api/v1/geospatial/proximity?lat=${lat}&lon=${lon}&radius_km=${radiusKm}&limit=30`);
+      if (!res.ok) throw new Error("Proximity correlation failed");
+      const data = await res.json();
+      const assets = data.proximate_assets || [];
+
+      if (badgeEl) badgeEl.textContent = assets.length;
+      listEl.innerHTML = '';
+
+      if (assets.length === 0) {
+        listEl.innerHTML = '<div style="color:var(--text-dim); font-size:11px; padding:6px 0;">No active kinetic assets within 50 km radius.</div>';
+        return;
+      }
+
+      assets.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'proximity-item';
+        
+        let dotColor = '#38BDF8';
+        if (item.is_sanctioned) dotColor = '#EF4444';
+        else if (item.is_military) dotColor = '#F59E0B';
+        else if (item.layer_type === 'VESSEL') dotColor = '#10B981';
+        else if (item.layer_type === 'CAMERA') dotColor = '#22D3EE';
+        else if (item.layer_type === 'QUAKE') dotColor = '#F97316';
+
+        // Format bearing to compass
+        const compassDirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+        const compassIdx = Math.round((item.bearing || 0) / 22.5) % 16;
+        const compass = compassDirs[compassIdx];
+
+        row.innerHTML = `
+          <div class="prox-left">
+            <span class="prox-dot" style="background:${dotColor};"></span>
+            <div>
+              <div class="prox-name">${item.display_label || item.callsign_or_name || 'Asset'}</div>
+              <div class="prox-meta">
+                ${item.layer_type || ''} 
+                ${item.speed_kts ? `· ${item.speed_kts.toFixed(0)} kts` : ''} 
+                ${item.altitude_m ? `· ${Math.round(item.altitude_m)}m` : ''}
+              </div>
+            </div>
+          </div>
+          <div class="prox-dist-wrap">
+            <div class="prox-dist">${item.distance_km.toFixed(1)} km</div>
+            <div class="prox-bearing font-mono">${Math.round(item.bearing || 0).toString().padStart(3, '0')}° ${compass}</div>
+          </div>
+        `;
+
+        row.addEventListener('click', () => {
+          if (window.globeMap) {
+            window.globeMap.flyToCoords(item.lat, item.lon, 11);
+            window.globeMap.renderProximityCircle(item.lat, item.lon, 50);
+          }
+          this.selectEntityWithProximity(item, item.lat, item.lon);
+        });
+
+        listEl.appendChild(row);
+      });
+    } catch (e) {
+      console.warn("Proximity fetch error:", e);
+      listEl.innerHTML = '<div style="color:var(--text-dim); font-size:11px; padding:6px 0;">Proximity correlation unavailable.</div>';
+    }
   }
 
   selectEntity(props, lat, lon) {

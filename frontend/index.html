@@ -53,6 +53,16 @@
 
     <!-- Action & Status Badges -->
     <div class="actions-section">
+      <!-- Auto-Sweep Status Pill -->
+      <div id="auto-sweep-pill" class="auto-sweep-badge" title="Crucix 15-Minute Background Sweeper (Click to toggle)">
+        ⏱️ Auto-Sweep: <strong id="auto-sweep-countdown">15:00</strong>
+      </div>
+
+      <!-- Tactical Audio Alerts Toggle -->
+      <button id="btn-toggle-audio" class="action-btn audio-toggle-btn" title="Toggle Tactical Audio Alerts">
+        🔊 Audio: ON
+      </button>
+
       <!-- Crucix Tension Score Gauge -->
       <div id="escalation-gauge" class="escalation-badge low" title="Global Escalation Score (Crucix Sweep-Delta)">
         Tension: <strong>--</strong>/100
@@ -100,9 +110,19 @@
       <button class="panel-collapse-btn" id="btn-collapse-zone-2">◀</button>
     </div>
 
+    <!-- Quick-Filter Bar -->
+    <div class="quick-filter-bar">
+      <button class="filter-pill active" data-filter="ALL">ALL</button>
+      <button class="filter-pill" data-filter="MILITARY">MILITARY</button>
+      <button class="filter-pill" data-filter="SANCTIONED">SANCTIONED</button>
+      <button class="filter-pill" data-filter="AIR">AIR</button>
+      <button class="filter-pill" data-filter="SEA">SEA</button>
+    </div>
+
     <div class="panel-tabs">
       <button class="panel-tab-btn active" data-tab="tab-layers">LAYERS</button>
       <button class="panel-tab-btn" data-tab="tab-crucix">CRUCIX SWEEPS</button>
+      <button class="panel-tab-btn" data-tab="tab-geofences">GEOFENCES</button>
     </div>
 
     <!-- TAB 1: KINETIC & GEOSPATIAL LAYERS -->
@@ -212,6 +232,24 @@
           </div>
         </div>
       </div>
+
+      <!-- Altitude & Speed Range Sliders -->
+      <div style="margin-top:16px; border-top:1px solid var(--border-hud-subtle); padding-top:12px;">
+        <div class="filter-slider-group">
+          <div class="filter-slider-title">
+            <span>MAX ALTITUDE:</span>
+            <span id="altitude-filter-val" class="font-mono">ANY</span>
+          </div>
+          <input type="range" id="slider-altitude-filter" min="0" max="60000" step="1000" value="60000">
+        </div>
+        <div class="filter-slider-group">
+          <div class="filter-slider-title">
+            <span>MIN SPEED:</span>
+            <span id="speed-filter-val" class="font-mono">0 KTS</span>
+          </div>
+          <input type="range" id="slider-speed-filter" min="0" max="1000" step="25" value="0">
+        </div>
+      </div>
     </div>
 
     <!-- TAB 2: CRUCIX SWEEP-DELTA STREAM -->
@@ -228,6 +266,17 @@
 
       <div class="sweep-stream" id="sweep-deltas-list">
         <div style="color:var(--text-dim); text-align:center; padding:15px;">Initializing Crucix engine...</div>
+      </div>
+    </div>
+
+    <!-- TAB 3: ACTIVE GEOFENCE WATCH ZONES -->
+    <div id="tab-geofences" class="tab-content tab-content-panel hidden">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <strong style="color:var(--accent-cyan); font-size:11px;">ACTIVE WATCH ZONES</strong>
+        <button id="btn-refresh-geofences" class="action-btn" style="font-size:10px; padding:2px 6px;">↻ Refresh</button>
+      </div>
+      <div id="geofences-list-container" class="geofences-list">
+        <div style="color:var(--text-dim); text-align:center; padding:15px; font-size:11px;">Loading geofences...</div>
       </div>
     </div>
   </aside>
@@ -268,6 +317,17 @@
         <button id="btn-camera-snapshot" class="action-btn primary" style="width:100%; justify-content:center;">
           📷 Analyze Frame in Visual Studio
         </button>
+      </div>
+
+      <!-- Spatial Proximity Section (Argos Atlas) -->
+      <div class="proximity-section" id="inspector-proximity-section">
+        <div class="proximity-title">
+          <span>SPATIAL PROXIMITY CORRELATION (&lt; 50 KM)</span>
+          <span id="proximity-count-badge" class="badge-telemetry live font-mono">0</span>
+        </div>
+        <div id="inspector-proximity-list" class="proximity-list">
+          <div style="color:var(--text-dim); font-size:11px; padding:6px 0;">Select an asset to view proximate traffic and sensors.</div>
+        </div>
       </div>
 
       <!-- Subjective Logic Opinion HUD -->
@@ -370,6 +430,13 @@
           <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">Supports JPEG, PNG, WebP with EXIF, GPS & C2PA manifest extraction</div>
         </div>
 
+        <!-- Webcam Snapshot Button -->
+        <div style="display:flex; justify-content:center; margin-bottom:12px;">
+          <button id="btn-webcam-capture" class="action-btn" style="border-color:var(--accent-teal);">
+            📷 Live Webcam Frame Capture
+          </button>
+        </div>
+
         <div id="visual-analysis-status" style="font-size:11px; color:var(--accent-cyan); margin-bottom:8px;"></div>
 
         <!-- Analysis Results Container -->
@@ -432,6 +499,17 @@
                   + Enroll in Consented Gallery
                 </button>
               </div>
+            </div>
+          </div>
+
+          <!-- Enrolled Consented Gallery Subjects Drawer -->
+          <div style="background:rgba(0,0,0,0.4); border:1px solid var(--border-hud); border-radius:4px; padding:12px; margin-top:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <strong style="color:var(--accent-cyan);">Consented Reference Subjects Gallery (Audited)</strong>
+              <button id="btn-refresh-gallery" class="action-btn" style="font-size:10px; padding:2px 6px;">↻ Refresh Gallery</button>
+            </div>
+            <div id="gallery-subjects-container" class="gallery-subjects-grid">
+              <div style="color:var(--text-dim); font-size:11px;">Loading enrolled gallery subjects...</div>
             </div>
           </div>
         </div>

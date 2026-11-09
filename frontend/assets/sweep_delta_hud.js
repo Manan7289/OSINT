@@ -18,6 +18,96 @@ class SweepDeltaHudEngine {
     this.bindSweepControls();
     this.bindGeofenceControls();
     this.fetchLatestSweep();
+    this.fetchAndRenderGeofencesList();
+    this.startAutoSweepTimer();
+  }
+
+  async fetchAndRenderGeofencesList() {
+    const container = document.getElementById('geofences-list-container');
+    if (!container) return;
+    try {
+      const res = await fetch('/api/v1/geofences');
+      if (!res.ok) return;
+      const list = await res.json();
+      container.innerHTML = '';
+      if (list.length === 0) {
+        container.innerHTML = '<div style="color:var(--text-dim); text-align:center; padding:15px;">No active geofence zones defined. Click "Draw Geofence" in bottom dock to create one.</div>';
+        return;
+      }
+      list.forEach(z => {
+        const card = document.createElement('div');
+        card.className = 'geofence-card';
+        card.innerHTML = `
+          <div>
+            <div class="geofence-name">⬟ ${z.name}</div>
+            <div class="geofence-meta">Layers: ${(z.monitored_layers || []).join(', ')} | Min: ${z.min_severity}</div>
+          </div>
+          <button class="action-btn danger btn-delete-geofence" data-id="${z.geofence_id}" style="padding:2px 6px; font-size:10px; border-color:#EF4444; color:#FCA5A5;">
+            Delete
+          </button>
+        `;
+        card.querySelector('.btn-delete-geofence').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const gid = e.target.getAttribute('data-id');
+          await this.deleteGeofence(gid);
+        });
+        container.appendChild(card);
+      });
+    } catch (e) {
+      console.warn("Error rendering geofences list:", e);
+    }
+  }
+
+  async deleteGeofence(geofenceId) {
+    try {
+      const res = await fetch(`/api/v1/geofences/${geofenceId}`, { method: 'DELETE' });
+      if (res.ok) {
+        this.fetchAndRenderGeofencesList();
+        if (window.globeMap && window.globeMap.fetchAndRenderGeofences) {
+          window.globeMap.fetchAndRenderGeofences();
+        }
+        if (window.app && window.app.showToast) {
+          window.app.showToast("Geofence zone deleted.", "info");
+        }
+      }
+    } catch (e) {
+      console.error("Delete geofence error:", e);
+    }
+  }
+
+  startAutoSweepTimer() {
+    this.secondsRemaining = 900;
+    const pill = document.getElementById('auto-sweep-pill');
+    if (pill) {
+      pill.addEventListener('click', async () => {
+        try {
+          const res = await fetch('/api/v1/sweeps/auto/toggle', { method: 'POST' });
+          if (res.ok) {
+            const data = await res.json();
+            pill.classList.toggle('active', data.enabled);
+            if (window.app && window.app.showToast) {
+              window.app.showToast(`Auto-Sweeper ${data.enabled ? 'Enabled (15m cycle)' : 'Paused'}`, 'info');
+            }
+          }
+        } catch (e) {
+          console.warn("Toggle auto-sweep error:", e);
+        }
+      });
+    }
+
+    setInterval(() => {
+      this.secondsRemaining--;
+      if (this.secondsRemaining <= 0) {
+        this.secondsRemaining = 900;
+        this.runSweepNow();
+      }
+      const mins = Math.floor(this.secondsRemaining / 60);
+      const secs = this.secondsRemaining % 60;
+      const timerReadout = document.getElementById('auto-sweep-timer-display');
+      if (timerReadout) {
+        timerReadout.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      }
+    }, 1000);
   }
 
   bindTabSwitchers() {
@@ -304,6 +394,10 @@ class SweepDeltaHudEngine {
       });
 
       if (res.ok) {
+        this.fetchAndRenderGeofencesList();
+        if (window.globeMap && window.globeMap.fetchAndRenderGeofences) {
+          window.globeMap.fetchAndRenderGeofences();
+        }
         if (window.app && window.app.showToast) {
           window.app.showToast(`Geofence '${name}' saved and actively monitored!`, 'success');
         }

@@ -161,6 +161,23 @@ class SpatiotemporalEngine:
             aircraft_tracks, nac_threshold=nac_threshold, cluster_dist_km=cluster_dist_km
         )
 
+    def find_proximate_assets(
+        self,
+        center_lat: float,
+        center_lon: float,
+        radius_km: float = 50.0,
+        layer_types: Optional[List[str]] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        return find_proximate_assets(
+            center_lat=center_lat,
+            center_lon=center_lon,
+            radius_km=radius_km,
+            layer_types=layer_types,
+            limit=limit,
+            database=self.db,
+        )
+
     def get_geospatial_clusters(self, workspace_id: str) -> Dict[str, Any]:
         """Fetches all entities with coordinates and clusters them via Haversine."""
         entities = self.db.list_entities(workspace_id=workspace_id, limit=5000)
@@ -430,6 +447,62 @@ def compute_gps_interference_zones(
             "detected_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         })
     return zones
+
+
+def calculate_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculates initial bearing from point 1 to point 2 in degrees [0, 360)."""
+    import math
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    delta_lambda = math.radians(lon2 - lon1)
+    y = math.sin(delta_lambda) * math.cos(phi2)
+    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(delta_lambda)
+    theta = math.atan2(y, x)
+    bearing = (math.degrees(theta) + 360) % 360
+    return round(bearing, 1)
+
+
+def find_proximate_assets(
+    center_lat: float,
+    center_lon: float,
+    radius_km: float = 50.0,
+    layer_types: Optional[List[str]] = None,
+    limit: int = 50,
+    database: Optional[DatabaseManager] = None,
+) -> List[Dict[str, Any]]:
+    """Argos Atlas-style spatial proximity correlation:
+    Discovers all kinetic assets and infrastructure (aircraft, vessels, cameras, hazards) within radius_km.
+    """
+    db_instance = database or db
+    tracks = db_instance.query_geo_tracks(layer_types=layer_types, limit=2000)
+
+    proximate = []
+    for t in tracks:
+        lat = t.get("lat")
+        lon = t.get("lon")
+        if lat is None or lon is None:
+            continue
+        dist = haversine_distance_km(center_lat, center_lon, lat, lon)
+        if 0.001 < dist <= radius_km:
+            bearing = calculate_bearing(center_lat, center_lon, lat, lon)
+            proximate.append({
+                "track_id": t.get("track_id"),
+                "entity_id": t.get("entity_id"),
+                "layer_type": t.get("layer_type"),
+                "display_label": t.get("display_label"),
+                "callsign_or_name": t.get("callsign_or_name"),
+                "distance_km": round(dist, 2),
+                "bearing_deg": bearing,
+                "lat": lat,
+                "lon": lon,
+                "altitude_m": t.get("altitude_m"),
+                "speed_kts": t.get("speed_kts"),
+                "is_sanctioned": t.get("is_sanctioned", False),
+                "is_military": t.get("is_military", False),
+                "telemetry_status": t.get("telemetry_status", "LIVE"),
+            })
+
+    proximate.sort(key=lambda x: x["distance_km"])
+    return proximate[:limit]
 
 
 # Singleton

@@ -895,3 +895,200 @@ html, body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--accent-cyan);
 }
+
+/* PROXIMITY CORRELATION SECTION (Zone 4) */
+.proximity-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border-hud-subtle);
+  border-radius: 4px;
+  padding: 10px;
+}
+
+.proximity-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+}
+
+.proximity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.proximity-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-hud-subtle);
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.proximity-item:hover {
+  border-color: var(--accent-cyan);
+  background: rgba(56, 189, 248, 0.1);
+}
+
+.proximity-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.proximity-distance {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--accent-amber);
+  font-size: 10px;
+}
+
+/* QUICK FILTER PILLS BAR */
+.quick-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.filter-pill {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-hud-subtle);
+  color: var(--text-muted);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.filter-pill.active {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  font-weight: 700;
+}
+
+/* RANGE SLIDERS IN ZONE 2 */
+.filter-slider-group {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-hud-subtle);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-top: 10px;
+}
+
+.filter-slider-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  font-family: var(--font-mono);
+}
+
+.mini-range-slider {
+  width: 100%;
+  -webkit-appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.15);
+  outline: none;
+}
+
+.mini-range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  cursor: pointer;
+}
+
+/* GEOFENCE ZONE CARDS (Zone 2 Tab) */
+.geofence-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-hud-subtle);
+  border-radius: 4px;
+  padding: 8px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.geofence-name {
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-main);
+}
+
+.geofence-meta {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+/* ENROLLED GALLERY SUBJECTS TABLE */
+.gallery-subjects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.gallery-subject-card {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-hud-subtle);
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 11px;
+}
+
+.gallery-subject-name {
+  font-weight: 700;
+  color: var(--accent-cyan);
+  margin-bottom: 3px;
+}
+
+.gallery-subject-purpose {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* AUDIO ALERT CHIRP INDICATOR */
+.audio-toggle-btn {
+  background: transparent;
+  border: 1px solid var(--border-hud-subtle);
+  color: var(--text-muted);
+  padding: 4px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.audio-toggle-btn.active {
+  border-color: var(--accent-emerald);
+  color: #34D399;
+  background: rgba(16, 185, 129, 0.15);
+}
+
